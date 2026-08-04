@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data & artifacts (tracked by DVC, not Git)
+data/
+datasets/**/*.png
+datasets/**/*.jpg
+!datasets/**/*.dvc
+artifacts/
+mlruns/
+outputs/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# DVC
+/.dvc/cache
+/.dvc/tmp
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local infrastructure state
+docker/volumes/
+*.tfstate
+*.tfstate.*
+.terraform/

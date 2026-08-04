@@ -1,0 +1,67 @@
+default_language_version:
+  python: python3.11
+
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]   # images belong in DVC, not Git (ADR-0006)
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-json
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: no-commit-to-branch
+        args: ["--branch=main"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+        stages: [manual]   # Black is the formatter of record
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.9
+          - types-pyyaml
+        args: ["--config-file=pyproject.toml"]
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: Clean Architecture layer contracts (ADR-0001)
+        entry: lint-imports
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: pytest-unit
+        name: unit tests
+        entry: pytest -m unit -q --no-cov
+        language: system
+        pass_filenames: false
+        types: [python]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.23.1
+    hooks:
+      - id: gitleaks

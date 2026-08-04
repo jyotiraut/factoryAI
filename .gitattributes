@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.bmp binary
+*.tiff binary
+*.ckpt binary
+*.pt binary
+*.pth binary
+*.onnx binary
+
+*.ps1 text eol=crlf
+Makefile text eol=lf
