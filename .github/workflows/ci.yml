@@ -63,23 +63,37 @@ jobs:
       - name: Run unit tests
         run: pytest -m unit
 
+  # Runs unit and integration tests together, with the 80% coverage gate enabled — see
+  # docs/CONTRIBUTING.md for why the gate is not enforced on the unit-only job above.
+  # Postgres and MinIO are started on demand by testcontainers; the Docker daemon that
+  # ships on ubuntu-latest runners is all this needs.
+  integration-tests:
+    name: Integration tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev,storage,test-infra]"
+
+      - name: Run unit + integration tests with coverage
+        run: pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-unit
+          name: coverage-combined
           path: coverage.xml
           if-no-files-found: ignore
-
-  # Enabled in Phase 2, when the first testcontainers-backed adapters land.
-  integration-tests:
-    name: Integration tests
-    runs-on: ubuntu-latest
-    if: false
-    steps:
-      - uses: actions/checkout@v4
-      - name: Placeholder
-        run: echo "Enabled in Phase 2 (see docs/ROADMAP.md)."
 
   security:
     name: Secret and dependency scan
@@ -117,7 +131,7 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [quality, unit-tests, security, docs]
+    needs: [quality, unit-tests, integration-tests, security, docs]
     if: always()
     steps:
       - name: Verify no job failed

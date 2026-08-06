@@ -35,7 +35,7 @@ Phases 8–14 make it operable, observable and deployable.
 
 ---
 
-## Phase 0 — Foundations & documentation *(current)*
+## Phase 0 — Foundations & documentation *(complete)*
 
 **Goal:** a repository that already looks like an enterprise project before a line of ML
 is written.
@@ -54,7 +54,7 @@ is written.
 
 ---
 
-## Phase 1 — Domain model & configuration core
+## Phase 1 — Domain model & configuration core *(complete)*
 
 **Goal:** the vocabulary of the system, dependency-free.
 
@@ -74,9 +74,17 @@ is written.
 - 100% unit test coverage on domain invariants (e.g. a `Checksum` cannot be malformed).
 - Category config for all 15 MVTec classes exists; only `bottle` is enabled.
 
+**Delivered.** The domain ended up stricter than planned: it depends on the standard
+library alone (no Pydantic — frozen dataclasses validate in `__post_init__`), which is
+now its own import-linter contract. 238 unit tests, 88% coverage, all five layer
+contracts held. Notable adapter-facing decision made while wiring `shared/config.py`:
+`STORAGE_BACKEND=minio` defaults to MinIO's well-known local credentials so a fresh
+checkout runs with zero configuration, while `s3`/`azure`/`gcs` still fail closed without
+an explicit key — see the validators on `StorageSettings`.
+
 ---
 
-## Phase 2 — Infrastructure adapters: object storage + database
+## Phase 2 — Infrastructure adapters: object storage + database *(complete)*
 
 **Goal:** real persistence behind the Phase 1 ports.
 
@@ -91,6 +99,23 @@ is written.
 - `make up` starts postgres + minio; `make migrate` applies a clean schema.
 - Swapping `STORAGE_BACKEND=minio|s3|local` changes no application code.
 - Integration tests green against real containers in CI.
+
+**Delivered.** 13 tables (schema mirrors `DATA_MODEL.md` with three documented,
+deliberate deviations — see `orm.py`'s module docstring: category enablement stays
+config, not a DB table; `password_hash` arrives with Phase 8; `audit_logs` immutability
+is a trigger, not application discipline). All 8 Phase-1 ports have SQLAlchemy
+implementations behind one `SqlAlchemyUnitOfWork`. Both `ObjectStore` adapters pass the
+same contract test suite. 65 integration tests run against real Postgres and MinIO via
+testcontainers; combined with the unit suite, coverage is 95% (gate: 80%, enforced only
+on the combined run — see `docs/CONTRIBUTING.md` for why unit-only coverage doesn't work
+once infrastructure adapters exist). Two real bugs surfaced and were fixed while wiring
+this up: (1) SQLAlchemy only orders a flush's INSERTs by FK dependency between mapped
+classes that have an ORM `relationship()` — a bare FK column is not enough — so two
+related rows added in one transaction without a declared relationship could flush in the
+wrong order and trip a spurious FK violation; fixed by flushing immediately after every
+`add()` (see `repositories.py`'s `_add` helper). (2) `psycopg`'s async mode refuses to run
+under Windows' default `ProactorEventLoop`; integration tests select
+`WindowsSelectorEventLoopPolicy` on that platform only.
 
 ---
 

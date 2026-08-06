@@ -14,7 +14,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [string]$Target = 'help'
+    [string]$Target = 'help',
+
+    [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
+    [string[]]$Rest = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,8 +39,9 @@ $targets = [ordered]@{
     'format-check'     = 'Verify formatting without writing'
     'typecheck'        = 'Mypy strict'
     'check-layers'     = 'Enforce Clean Architecture boundaries (ADR-0001)'
-    'test'             = 'Run unit tests with coverage'
+    'test'             = 'Run unit tests (fast, no coverage gate - see test-cov)'
     'test-integration' = 'Run integration tests (requires Docker)'
+    'test-cov'         = 'Run unit + integration tests with the 80% coverage gate (requires Docker)'
     'test-e2e'         = 'Run end-to-end tests against the compose stack'
     'quality'          = 'Everything CI runs'
     'up'               = 'Start the local platform'
@@ -45,6 +49,7 @@ $targets = [ordered]@{
     'reset'            = 'Stop and DESTROY local volumes'
     'logs'             = 'Tail all service logs'
     'migrate'          = 'Apply database migrations'
+    'migration'        = 'Create a new migration; usage: .\make.ps1 migration "add x column"'
     'seed'             = 'Download, validate and ingest the MVTec bottle dataset'
     'train'            = 'Run the training pipeline with the default config'
     'clean'            = 'Remove caches and build artifacts'
@@ -87,6 +92,11 @@ switch ($Target) {
     'test'         { Invoke-Step 'pytest (unit)' { uv run pytest -m unit } }
 
     'test-integration' { Invoke-Step 'pytest (integration)' { uv run pytest -m integration } }
+    'test-cov' {
+        Invoke-Step 'pytest (unit + integration, coverage gate)' {
+            uv run pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
+        }
+    }
     'test-e2e'         { Invoke-Step 'pytest (e2e)' { uv run pytest -m e2e } }
 
     'quality' {
@@ -100,7 +110,13 @@ switch ($Target) {
     'down'    { Invoke-Step 'compose down' { docker compose -f $compose down } }
     'reset'   { Invoke-Step 'compose down -v' { docker compose -f $compose down -v } }
     'logs'    { docker compose -f $compose logs -f }
-    'migrate' { Invoke-Step 'alembic upgrade head' { uv run alembic upgrade head } }
+    'migrate' { Invoke-Step 'alembic upgrade head' { uv run alembic -c database/alembic.ini upgrade head } }
+    'migration' {
+        $message = $Rest -join ' '
+        Invoke-Step 'alembic revision --autogenerate' {
+            uv run alembic -c database/alembic.ini revision --autogenerate -m $message
+        }
+    }
     'seed'    { Invoke-Step 'seed dataset' { uv run python scripts/seed_dataset.py --category bottle } }
     'train'   { Invoke-Step 'train' { uv run factoryai train --config configs/bottle/patchcore.yaml } }
 

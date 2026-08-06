@@ -1,0 +1,83 @@
+# Local development stack for FactoryAI (Phase 2: persistence + object storage).
+#
+# Every published port is parameterised with a default, so a developer whose machine
+# already has something bound to the "obvious" port (5432, 9000, ...) can override it in
+# their .env without editing this file. Later phases append services here rather than
+# replacing this file — see docs/ROADMAP.md.
+#
+# Usage: make up   (== docker compose -f deploy/compose/docker-compose.yml up -d --build)
+
+name: factoryai
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-factoryai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-factoryai}
+      POSTGRES_DB: ${POSTGRES_DB:-factoryai}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-factoryai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [factoryai]
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin}
+    ports:
+      - "${STORAGE_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [factoryai]
+
+  # One-shot job: creates the buckets the platform expects (see
+  # factoryai.shared.config.StorageSettings.buckets) and exits. Re-running is safe —
+  # `mc mb --ignore-existing` no-ops on a bucket that is already there.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${STORAGE_ACCESS_KEY:-minioadmin} ${STORAGE_SECRET_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/factoryai-raw &&
+      mc mb --ignore-existing local/factoryai-datasets &&
+      mc mb --ignore-existing local/factoryai-artifacts &&
+      mc mb --ignore-existing local/factoryai-heatmaps
+      "
+    networks: [factoryai]
+
+  adminer:
+    image: adminer:latest
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [factoryai]
+
+networks:
+  factoryai:
+    name: factoryai
+
+volumes:
+  postgres-data:
+  minio-data:

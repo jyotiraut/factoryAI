@@ -39,11 +39,14 @@ typecheck: ## Mypy strict
 check-layers: ## Enforce Clean Architecture boundaries (ADR-0001)
 	$(UV) run lint-imports
 
-test: ## Run unit tests with coverage
+test: ## Run unit tests (fast, no coverage gate — see test-cov)
 	$(UV) run pytest -m unit
 
 test-integration: ## Run integration tests (requires Docker)
 	$(UV) run pytest -m integration
+
+test-cov: ## Run unit + integration tests with the 80% coverage gate (requires Docker)
+	$(UV) run pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
 
 test-e2e: ## Run end-to-end tests against the compose stack
 	$(UV) run pytest -m e2e
@@ -65,7 +68,10 @@ logs: ## Tail all service logs
 	docker compose -f deploy/compose/docker-compose.yml logs -f
 
 migrate: ## Apply database migrations
-	$(UV) run alembic upgrade head
+	$(UV) run alembic -c database/alembic.ini upgrade head
+
+migration: ## Create a new migration; usage: make migration m="add x column"
+	$(UV) run alembic -c database/alembic.ini revision --autogenerate -m "$(m)"
 
 seed: ## Download, validate and ingest the MVTec bottle dataset
 	$(UV) run python scripts/seed_dataset.py --category bottle

@@ -134,6 +134,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D100", "D101", "D102", "D103", "D104", "PLR2004", "ARG001"]
 "pipelines/airflow/**" = ["D100"]
+# Adapters conforming to a shared port interface legitimately leave some parameters
+# unused in a given implementation (e.g. LocalObjectStore.put's content_type).
+"src/factoryai/infrastructure/storage/**" = ["ARG002"]
+# Alembic generates the module docstring's first line ("initial schema", "add x column")
+# from the -m message; enforcing terminal punctuation there fights the tool, not a smell.
+"database/migrations/versions/**" = ["D415", "D103", "D100"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -174,6 +180,8 @@ module = [
     "evidently.*",
     "imagehash.*",
     "testcontainers.*",
+    "boto3.*",
+    "botocore.*",
 ]
 ignore_missing_imports = true
 
@@ -183,13 +191,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# Coverage is deliberately not in the default addopts: unit tests alone cannot reach 80%
+# once infrastructure adapters exist, since those are exercised by integration tests
+# against real containers, not by unit tests (see docs/CONTRIBUTING.md). Pass --cov
+# explicitly — `make test-cov` runs unit and integration together with the gate enabled.
 addopts = [
     "--strict-markers",
     "--strict-config",
     "-ra",
-    "--cov=factoryai",
-    "--cov-report=term-missing",
-    "--cov-report=xml",
 ]
 markers = [
     "unit: fast, no I/O, no containers",
@@ -240,6 +249,15 @@ forbidden_modules = [
     "fastapi", "starlette", "uvicorn",
     "mlflow", "anomalib", "torch", "celery", "evidently",
 ]
+
+# Stricter than ADR-0001 requires. The domain turned out not to need Pydantic at all —
+# frozen dataclasses validate in __post_init__ — so the stronger guarantee is locked in
+# rather than left to discipline. Relaxing this is a deliberate, reviewable change.
+[[tool.importlinter.contracts]]
+name = "Domain uses the standard library only"
+type = "forbidden"
+source_modules = ["factoryai.domain"]
+forbidden_modules = ["pydantic", "pydantic_settings", "yaml", "structlog", "typer"]
 
 [[tool.importlinter.contracts]]
 name = "Application is free of web frameworks and concrete infrastructure"

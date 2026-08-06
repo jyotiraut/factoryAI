@@ -18,7 +18,7 @@ retraining automatically when the data drifts away from what the model was train
 
 | | |
 |---|---|
-| **Phase** | 0 complete — foundations, tooling and quality gates. Next: Phase 1, domain model |
+| **Phase** | 2 complete — Postgres + Alembic, MinIO/S3 + local object storage, composition root. Next: Phase 3, ingestion & validation |
 | **Model** | PatchCore (Anomalib), plugin architecture for PaDiM / FastFlow / RD / AE |
 | **Dataset** | MVTec AD — `bottle` first, category is configuration, not code |
 | **Runtime** | Python 3.11, Docker Compose locally, Kubernetes manifests for cluster |
@@ -55,7 +55,7 @@ Full narrative in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
-**Working today** (Phase 0 — toolchain and quality gates):
+**Working today** (Phases 0–2 — toolchain, domain model, persistence):
 
 ```bash
 git clone <repo> && cd factoryAI
@@ -63,15 +63,17 @@ cp .env.example .env
 
 make venv && make install     # Windows: .\make.ps1 venv ; .\make.ps1 install
 make quality                  # lint, format, mypy strict, layer contracts, unit tests
-factoryai version
+
+make up                       # postgres + minio + adminer, buckets auto-provisioned
+make migrate                  # apply the schema
+make test-integration         # repositories + object storage against real containers
 ```
 
 **Planned** — the contract later phases are built against:
 
 ```bash
-make up           # start the full stack                    (Phase 2)
 make seed         # download, validate and ingest MVTec bottle (Phase 3-4)
-make train        # run the PatchCore training pipeline      (Phase 5)
+make train        # run the PatchCore training pipeline        (Phase 5)
 ```
 
 | Service | URL | Purpose |

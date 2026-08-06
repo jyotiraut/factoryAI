@@ -32,8 +32,13 @@ fast unit tests.
 | Black | Formatting (line length 100) | `make format` |
 | Mypy | Strict typing, no untyped defs | `make typecheck` |
 | import-linter | Layer boundaries (ADR-0001) | `make check-layers` |
-| pytest | Tests, 85% coverage gate | `make test` |
-| pre-commit | All of the above on staged files | automatic |
+| pytest | Unit tests, fast, no Docker | `make test` |
+| pytest + coverage | Unit + integration, 80% gate | `make test-cov` (requires Docker) |
+| pre-commit | Lint/format/type/layer checks + unit tests on staged files | automatic |
+
+The coverage gate runs against unit **and** integration tests together, not unit tests
+alone: infrastructure adapters (`factoryai.infrastructure.*`) are exercised by integration
+tests against real containers, so unit-only coverage understates them by design.
 
 Non-negotiables:
 - **Type hints on every function**, including tests. `Any` requires a comment justifying it.

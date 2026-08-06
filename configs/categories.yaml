@@ -1,0 +1,128 @@
+# MVTec AD inspection categories.
+#
+# Category is configuration, not code. Enabling a class requires flipping `enabled` and
+# ingesting its data — no application change (see docs/ARCHITECTURE.md §5).
+#
+# Only `bottle` is enabled. The remaining classes are defined so that the shape of a
+# multi-category deployment is visible from day one, and so that enabling one is a
+# reviewed configuration change rather than a new feature.
+#
+# image_size / center_crop follow the Anomalib MVTec defaults; per-class overrides exist
+# where the object's aspect ratio or fine detail warrants them.
+
+categories:
+  bottle:
+    display_name: Bottle
+    enabled: true
+    image_size: 256x256
+    center_crop: 224x224
+    normalisation: imagenet
+    default_model: patchcore
+    notes: >-
+      Reference category for Phases 3-7. Defects: broken_large, broken_small, contamination.
+
+  cable:
+    display_name: Cable
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Multi-object scene; benefits from a larger memory bank.
+
+  capsule:
+    display_name: Capsule
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+
+  carpet:
+    display_name: Carpet
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Texture class; FastFlow is a strong alternative here.
+
+  grid:
+    display_name: Grid
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Fine repeating structure; sensitive to aggressive downscaling.
+
+  hazelnut:
+    display_name: Hazelnut
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+
+  leather:
+    display_name: Leather
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Texture class.
+
+  metal_nut:
+    display_name: Metal Nut
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Rotationally variable; augmentation policy needs review before enabling.
+
+  pill:
+    display_name: Pill
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+
+  screw:
+    display_name: Screw
+    enabled: false
+    image_size: 320x320
+    center_crop: 288x288
+    default_model: patchcore
+    notes: Thin thread defects; larger input retains detail that 224px loses.
+
+  tile:
+    display_name: Tile
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Texture class.
+
+  toothbrush:
+    display_name: Toothbrush
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+
+  transistor:
+    display_name: Transistor
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+
+  wood:
+    display_name: Wood
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
+    notes: Texture class.
+
+  zipper:
+    display_name: Zipper
+    enabled: false
+    image_size: 256x256
+    center_crop: 224x224
+    default_model: patchcore
