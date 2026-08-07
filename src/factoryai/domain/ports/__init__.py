@@ -17,6 +17,7 @@ from factoryai.domain.ports.detection import (
     get_detector_class,
     register_detector,
 )
+from factoryai.domain.ports.imaging import ImageCodec
 from factoryai.domain.ports.monitoring import DistributionSample, DriftDetector
 from factoryai.domain.ports.repositories import (
     AuditRepository,
@@ -31,12 +32,14 @@ from factoryai.domain.ports.repositories import (
 )
 from factoryai.domain.ports.services import (
     Clock,
+    HardwareProbe,
     IdGenerator,
     SystemClock,
     UuidGenerator,
 )
 from factoryai.domain.ports.storage import ObjectStore
 from factoryai.domain.ports.tracking import ExperimentTracker, ModelRegistry
+from factoryai.domain.ports.versioning import VersionControl
 
 __all__ = [
     "AnomalyDetector",
@@ -49,7 +52,9 @@ __all__ = [
     "DriftReportRepository",
     "ExperimentRepository",
     "ExperimentTracker",
+    "HardwareProbe",
     "IdGenerator",
+    "ImageCodec",
     "ImageRepository",
     "ModelRegistry",
     "ModelRepository",
@@ -62,6 +67,7 @@ __all__ = [
     "UnitOfWork",
     "UserRepository",
     "UuidGenerator",
+    "VersionControl",
     "available_detectors",
     "get_detector_class",
     "register_detector",

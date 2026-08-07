@@ -8,6 +8,7 @@ they are frozen, so a valid one cannot become invalid later.
 from factoryai.domain.value_objects.anomaly_score import AnomalyScore
 from factoryai.domain.value_objects.category import MVTEC_CATEGORIES, Category
 from factoryai.domain.value_objects.checksum import Checksum
+from factoryai.domain.value_objects.decoded_image import DecodedImage
 from factoryai.domain.value_objects.enums import (
     DatasetSplit,
     DeploymentAction,
@@ -45,6 +46,7 @@ __all__ = [
     "DatasetId",
     "DatasetSplit",
     "DatasetVersionId",
+    "DecodedImage",
     "DeploymentAction",
     "DeploymentId",
     "DriftReportId",

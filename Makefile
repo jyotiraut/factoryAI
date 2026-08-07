@@ -19,7 +19,7 @@ install: ## Install the project with dev dependencies and pre-commit hooks
 	$(UV) run pre-commit install
 
 install-all: ## Install every optional dependency group (slow — pulls torch)
-	$(UV) pip install -e ".[dev,storage,imaging,ml,api,auth,worker,monitoring,test-infra]"
+	$(UV) pip install -e ".[dev,storage,imaging,versioning,ml,api,auth,worker,monitoring,test-infra]"
 
 # --- Quality ---------------------------------------------------------------
 

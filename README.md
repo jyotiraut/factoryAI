@@ -18,7 +18,7 @@ retraining automatically when the data drifts away from what the model was train
 
 | | |
 |---|---|
-| **Phase** | 2 complete — Postgres + Alembic, MinIO/S3 + local object storage, composition root. Next: Phase 3, ingestion & validation |
+| **Phase** | 3 complete — ingestion & validation pipeline, `factoryai ingest`. Next: Phase 4, dataset versioning with DVC |
 | **Model** | PatchCore (Anomalib), plugin architecture for PaDiM / FastFlow / RD / AE |
 | **Dataset** | MVTec AD — `bottle` first, category is configuration, not code |
 | **Runtime** | Python 3.11, Docker Compose locally, Kubernetes manifests for cluster |
@@ -55,7 +55,7 @@ Full narrative in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
-**Working today** (Phases 0–2 — toolchain, domain model, persistence):
+**Working today** (Phases 0–3 — toolchain, domain model, persistence, ingestion):
 
 ```bash
 git clone <repo> && cd factoryAI
@@ -66,14 +66,16 @@ make quality                  # lint, format, mypy strict, layer contracts, unit
 
 make up                       # postgres + minio + adminer, buckets auto-provisioned
 make migrate                  # apply the schema
-make test-integration         # repositories + object storage against real containers
+make test-integration         # repositories, storage and ingestion against real containers
+
+factoryai ingest --path ./some/images --category bottle --report-path report.json
 ```
 
 **Planned** — the contract later phases are built against:
 
 ```bash
-make seed         # download, validate and ingest MVTec bottle (Phase 3-4)
-make train        # run the PatchCore training pipeline        (Phase 5)
+make seed         # download the real MVTec bottle set and ingest it (Phase 4)
+make train        # run the PatchCore training pipeline               (Phase 5)
 ```
 
 | Service | URL | Purpose |

@@ -8,7 +8,21 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from factoryai.shared.config import CategoryConfig, Settings, _load_categories
+from factoryai.shared.config import (
+    ApiSettings,
+    AuthSettings,
+    CategoryConfig,
+    CelerySettings,
+    DatabaseSettings,
+    DriftSettings,
+    IngestionSettings,
+    MLflowSettings,
+    PromotionSettings,
+    Settings,
+    StorageSettings,
+    TrainingSettings,
+    _load_categories,
+)
 from factoryai.shared.errors import ConfigurationError
 
 pytestmark = pytest.mark.unit
@@ -27,17 +41,40 @@ _ENV_PREFIXES = (
     "DRIFT_",
 )
 
+_SETTINGS_CLASSES = (
+    Settings,
+    DatabaseSettings,
+    StorageSettings,
+    IngestionSettings,
+    MLflowSettings,
+    TrainingSettings,
+    PromotionSettings,
+    ApiSettings,
+    AuthSettings,
+    CelerySettings,
+    DriftSettings,
+)
+
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent a developer's local environment from leaking into these tests.
 
-    Every ``Settings(...)`` call in this file passes ``_env_file=None`` explicitly, so only
-    real process environment variables need clearing here.
+    Two leaks to close, not one. Real process environment variables are the obvious one.
+    The less obvious one: passing ``_env_file=None`` to ``Settings(...)`` only stops the
+    *outer* class from reading a real ``.env`` file — every nested group
+    (``DatabaseSettings``, ``AuthSettings``, ...) is itself a ``BaseSettings`` subclass
+    with its own ``env_file=".env"``, and independently re-reads that file from disk when
+    built as a field default. A repo with no ``.env`` file hides this; a normal
+    ``cp .env.example .env`` (exactly what the README's quick start tells a developer to
+    run) exposes it immediately. Patching every group's ``env_file`` to ``None`` closes it
+    at the source instead of relying on each test to route around it.
     """
     for key in list(os.environ):
         if key.startswith(_ENV_PREFIXES):
             monkeypatch.delenv(key, raising=False)
+    for settings_cls in _SETTINGS_CLASSES:
+        monkeypatch.setitem(settings_cls.model_config, "env_file", None)
 
 
 class TestDefaults:

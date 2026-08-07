@@ -1,0 +1,5 @@
+outs:
+- md5: 1959170119ee6e1146e1b7fe5594fad3
+  size: 57670
+  hash: md5
+  path: bottle-v1.json

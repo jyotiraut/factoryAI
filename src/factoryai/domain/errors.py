@@ -54,6 +54,16 @@ class DuplicateImageError(DomainError):
     default_code = "image.duplicate"
 
 
+class CorruptImageError(DomainError):
+    """The bytes offered as an image could not be decoded as one.
+
+    Raised by an :class:`~factoryai.domain.ports.imaging.ImageCodec` adapter, never by the
+    domain itself — decoding requires an imaging library the domain does not depend on.
+    """
+
+    default_code = "image.corrupt"
+
+
 class EntityNotFoundError(DomainError):
     """A referenced entity does not exist."""
 
@@ -82,6 +92,23 @@ class IllegalStateTransitionError(DomainError):
                 "requested": str(requested),
             },
         )
+
+
+class DatasetVersionTagExistsError(DomainError):
+    """A dataset version with this tag already exists within its dataset."""
+
+    default_code = "dataset_version.tag_exists"
+
+
+class EmptyDatasetVersionError(DomainError):
+    """No trainable images exist for the requested category.
+
+    A dataset version cannot be empty (:class:`~factoryai.domain.entities.dataset.
+    DatasetVersion` enforces at least one member), so this is caught before that entity
+    is even constructed.
+    """
+
+    default_code = "dataset_version.no_trainable_images"
 
 
 class PromotionRejectedError(DomainError):

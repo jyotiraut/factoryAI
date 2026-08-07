@@ -74,6 +74,53 @@ services:
         condition: service_healthy
     networks: [factoryai]
 
+  # One-shot job: creates the `mlflow` database inside the shared Postgres instance.
+  # MLflow's backend store expects a database of its own rather than reusing factoryai's
+  # application schema (ADR-0004) — `CREATE DATABASE` cannot run inside a transaction or be
+  # made conditional in plain SQL, hence the shell-level existence check.
+  mlflow-db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-factoryai}
+    entrypoint: >
+      /bin/sh -c "
+      psql -h postgres -U ${POSTGRES_USER:-factoryai} -d ${POSTGRES_DB:-factoryai} -tc
+      \"SELECT 1 FROM pg_database WHERE datname = 'mlflow'\" | grep -q 1 ||
+      psql -h postgres -U ${POSTGRES_USER:-factoryai} -d ${POSTGRES_DB:-factoryai} -c
+      \"CREATE DATABASE mlflow\"
+      "
+    networks: [factoryai]
+
+  # Self-hosted MLflow: PostgreSQL backend store, MinIO (S3-compatible) artifact store
+  # (ADR-0004). The image is built locally (see mlflow.Dockerfile) because the upstream
+  # MLflow image ships without the Postgres/S3 client libraries the server needs to talk to
+  # either.
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlflow.Dockerfile
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://${POSTGRES_USER:-factoryai}:${POSTGRES_PASSWORD:-factoryai}@postgres:5432/mlflow
+      --default-artifact-root s3://${STORAGE_BUCKET_ARTIFACTS:-factoryai-artifacts}/
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MLFLOW_HOST_PORT:-5000}:5000"
+    depends_on:
+      mlflow-db-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    networks: [factoryai]
+
 networks:
   factoryai:
     name: factoryai

@@ -1,0 +1,18 @@
+# Training config for the bottle category's default detector (ADR-0002).
+# `factoryai train --config configs/bottle/patchcore.yaml`
+
+dataset_name: bottle
+dataset_version_tag: bottle-v1
+category: bottle
+
+model:
+  name: patchcore
+  backbone: wide_resnet50_2
+  hyperparameters:
+    coreset_sampling_ratio: 0.1
+    num_neighbors: 9
+
+image_size: 256x256
+seed: 42
+device: auto
+note: "Default PatchCore run for the bottle category."

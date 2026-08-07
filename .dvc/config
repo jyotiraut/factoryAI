@@ -1,0 +1,5 @@
+[core]
+    remote = minio
+['remote "minio"']
+    url = s3://factoryai-datasets/dvc-cache
+    endpointurl = http://localhost:9000

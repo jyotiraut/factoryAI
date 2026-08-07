@@ -12,6 +12,7 @@ from factoryai.domain.value_objects import (
     AnomalyScore,
     Category,
     Checksum,
+    DecodedImage,
     DriftSeverity,
     ModelStage,
     ProcessingStatus,
@@ -208,6 +209,26 @@ class TestStorageLocation:
 
     def test_allows_dots_inside_a_segment(self) -> None:
         assert StorageLocation("bucket", "v1..2/file.png").key == "v1..2/file.png"
+
+
+class TestDecodedImage:
+    def test_accepts_valid_structural_metadata(self) -> None:
+        image = DecodedImage(resolution=Resolution(64, 64), image_format="PNG", color_mode="RGB")
+        assert image.resolution == Resolution(64, 64)
+        assert image.image_format == "PNG"
+        assert image.color_mode == "RGB"
+
+    @pytest.mark.parametrize("bad_format", ["", "   "])
+    def test_rejects_a_blank_format(self, bad_format: str) -> None:
+        with pytest.raises(InvariantViolationError) as exc:
+            DecodedImage(resolution=Resolution(64, 64), image_format=bad_format, color_mode="RGB")
+        assert exc.value.code == "decoded_image.no_format"
+
+    @pytest.mark.parametrize("bad_mode", ["", "   "])
+    def test_rejects_a_blank_color_mode(self, bad_mode: str) -> None:
+        with pytest.raises(InvariantViolationError) as exc:
+            DecodedImage(resolution=Resolution(64, 64), image_format="PNG", color_mode=bad_mode)
+        assert exc.value.code == "decoded_image.no_color_mode"
 
 
 class TestEnums:

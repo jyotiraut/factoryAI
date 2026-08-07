@@ -155,6 +155,8 @@ class IngestionSettings(BaseSettings):
     # pydantic-settings' default env-var JSON decoding for complex types must be skipped
     # and parsing left entirely to the `mode="before"` validators below.
     allowed_formats: Annotated[tuple[str, ...], NoDecode] = ("png", "jpeg", "bmp", "tiff")
+    # Pillow mode names ("RGB", "L", "RGBA", ...) are case-sensitive, unlike file formats.
+    allowed_color_modes: Annotated[tuple[str, ...], NoDecode] = ("RGB", "L", "RGBA")
     min_resolution: Annotated[tuple[int, int], NoDecode] = (256, 256)
     max_resolution: Annotated[tuple[int, int], NoDecode] = (4096, 4096)
     duplicate_hamming_threshold: int = Field(default=3, ge=0, le=64)
@@ -168,6 +170,14 @@ class IngestionSettings(BaseSettings):
         """Accept a comma-separated string as well as a sequence."""
         if isinstance(value, str):
             return tuple(item.strip().lower() for item in value.split(",") if item.strip())
+        return value
+
+    @field_validator("allowed_color_modes", mode="before")
+    @classmethod
+    def _split_color_modes(cls, value: Any) -> Any:
+        """Accept a comma-separated string as well as a sequence."""
+        if isinstance(value, str):
+            return tuple(item.strip() for item in value.split(",") if item.strip())
         return value
 
     @model_validator(mode="after")

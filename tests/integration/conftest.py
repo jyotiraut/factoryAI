@@ -8,20 +8,11 @@ table count. A single MinIO container is likewise shared for the session.
 
 from __future__ import annotations
 
-import asyncio
 import os
-import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
-
-if sys.platform == "win32":
-    # psycopg's async mode refuses to run under the default ProactorEventLoop on Windows
-    # ("Psycopg cannot use the 'ProactorEventLoop' to run in async mode"). This must be
-    # set before pytest-asyncio creates the first event loop, so it lives at module level
-    # rather than inside a fixture.
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
@@ -32,6 +23,11 @@ from testcontainers.community.postgres import PostgresContainer
 from factoryai.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from factoryai.infrastructure.storage.local import LocalObjectStore
 from factoryai.infrastructure.storage.s3_compatible import S3CompatibleObjectStore
+from factoryai.shared.asyncio_compat import configure_event_loop_policy
+
+# Must run before pytest-asyncio creates the first event loop — see the module's
+# docstring for why this cannot be deferred into a fixture.
+configure_event_loop_policy()
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "database" / "alembic.ini"

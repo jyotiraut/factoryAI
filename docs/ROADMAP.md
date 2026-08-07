@@ -119,7 +119,7 @@ under Windows' default `ProactorEventLoop`; integration tests select
 
 ---
 
-## Phase 3 — Ingestion & validation pipeline
+## Phase 3 — Ingestion & validation pipeline *(complete)*
 
 **Goal:** nothing enters the dataset unvalidated.
 
@@ -137,9 +137,60 @@ under Windows' default `ProactorEventLoop`; integration tests select
 - Ingesting the full MVTec `bottle` train+test set produces a complete metadata table.
 - Rules are declarative — adding a rule requires no change to the use case.
 
+**Delivered.** The domain gained a `policies` package: a `ValidationChain` of four
+composable rules (max file size, allowed format, resolution bounds, allowed colour mode),
+each pure and independently testable, evaluated against a `DecodedImage` value object
+rather than a `PIL.Image` — that boundary is what keeps decoding-library concerns out of
+the domain. `IngestImage` is the first occupant of `application/use_cases/`: it decodes,
+validates, checks for exact (checksum) and near (perceptual-hash) duplicates, uploads,
+persists, and appends an audit event, with a compensating delete if anything after the
+upload fails. Expected outcomes (`accepted` / `rejected` / `duplicate`) are values, not
+exceptions — only genuine infrastructure failures raise, which is what let the CLI keep a
+batch going after one bad file. `PillowImageCodec` implements the new `ImageCodec` port
+(Pillow decode + `imagehash` perceptual hash). `IngestImageCommand` also carries an
+optional ground-truth `label` (`good` / `defect` / `unlabeled`, default `unlabeled`) so a
+curated benchmark that already states the answer — MVTec's `train/good` vs.
+`test/broken_large` — doesn't have that answer silently discarded; a production camera
+feed simply leaves it at the default. Two scope cuts, noted rather than silently dropped:
+EXIF sanity and aspect-ratio bounds are not implemented as rules (low signal for the
+effort, revisit if a real defect category needs them); a "required metadata" rule was
+folded into format/resolution checks rather than added as its own weak check. Verified with
+21 use-case unit tests against fakes (including a compensating-delete test that forces a
+simulated commit failure, and label pass-through/default tests) and 6 integration tests
+against real Postgres and MinIO (including one that forces a genuine Postgres primary-key
+collision to prove the compensating delete against real infrastructure, not just a fake).
+`factoryai ingest` is tested for argument wiring and its early-exit paths; the CLI's own
+happy-path loop is exercised indirectly through the use case's exhaustive coverage rather
+than a second, Docker-dependent CLI-level integration test — a deliberate scope line, not
+an oversight.
+
+The CLI was then run for real against the downloaded MVTec `bottle` set (292 source
+images across `train/good`, `test/good`, `test/broken_large`, `test/broken_small`,
+`test/contamination`) into the live docker-compose Postgres+MinIO stack, closing what had
+been a manual follow-up. 284 images were accepted (221 `good`, 63 `defect`), 8 flagged as
+duplicate (verified genuine — recompressed/resized near-copies within a folder, not false
+positives), 0 rejected; the audit hash chain, MinIO object count, and checksum uniqueness
+all cross-checked clean against the DB row count. Real data surfaced three bugs synthetic
+fixtures never would have: (1) the CLI entry point never applied the
+`WindowsSelectorEventLoopPolicy` fix that integration tests already had (Phase 2's bug (2)
+above, fixed there for tests only) — `psycopg`'s async mode failed on every image until
+`shared/asyncio_compat.py` centralised the fix for every process entry point. (2)
+`imagehash.average_hash` produced the *identical* 64-bit fingerprint for all 209
+`train/good` photos (Hamming distance 0) — industrial inspection photos are dominated by a
+large near-uniform background, which coarse pixel-averaging cannot discriminate against.
+Switched to `imagehash.phash` (DCT-based), which gave genuinely different photos a
+distance of 8-26 bits while still catching true near-duplicates (~2). (3) Creating a real
+`.env` for this run exposed a latent test-isolation gap dormant since Phase 1: nested
+settings groups (`DatabaseSettings`, `AuthSettings`, ...) are independent `BaseSettings`
+subclasses that each re-read `.env` from disk regardless of the outer `Settings(_env_file=
+None)`, so `POSTGRES_PASSWORD=factoryai` leaked into three previously-passing config
+tests. Fixed by monkeypatching `env_file` to `None` on every nested settings class, not
+just the outer one — the exact gap a fresh `cp .env.example .env` (the README's own quick
+start) would have hit for any developer.
+
 ---
 
-## Phase 4 — Dataset versioning with DVC
+## Phase 4 — Dataset versioning with DVC *(complete)*
 
 **Goal:** every dataset state is addressable and reproducible.
 
@@ -154,9 +205,42 @@ under Windows' default `ProactorEventLoop`; integration tests select
 - `factoryai dataset checkout bottle-v1` reproduces byte-identical data on a clean machine.
 - A dataset version records: image count, class balance, checksum-of-checksums, Git SHA.
 
+**Delivered.** The `Dataset`/`DatasetVersion`/`DatasetMember` entities, the
+`dataset_versions`/`dataset_version_images` tables and the `DatasetRepository` port all
+already existed from Phase 1-2's schema work — this phase's actual gap was the use case and
+the DVC/Git integration, not the data model. A new `VersionControl` port
+(`domain/ports/versioning.py`) reports the current Git commit and materialises/pushes/pulls
+DVC-tracked files, keeping `dvc`/`git` subprocess calls out of the domain (ADR-0001);
+`DvcGitVersionControl` shells out to both CLIs rather than driving DVC's Python API, which
+is explicitly documented upstream as unstable across minor versions. `CreateDatasetVersion`
+selects every valid, trainable image for a category, assigns a deterministic train/val/test
+split via a seeded shuffle over a stably-sorted input (same seed, same trainable set →
+same per-image split, not just the same split *counts* — the two are different claims, and
+the unit test checks the stronger one), builds a manifest sorted by image id (so the
+resulting content hash is a property of membership, not of iteration order), and records a
+`DatasetVersion` alongside an audit event, all inside one transaction. `dvc init` was run
+against the real repo with the already-provisioned `factoryai-datasets` MinIO bucket as the
+remote (`s3://factoryai-datasets/dvc-cache`); credentials live in the git-ignored
+`.dvc/config.local`, never in the committed `.dvc/config`. CLI: `factoryai dataset version
+--dataset ... --category ... --tag ... [--train/--val/--test/--seed/--note]`, plus
+`factoryai dataset checkout --dataset ... --tag ...`, which pulls the exact DVC-tracked
+manifest bytes for a version — reproducing the *data* half of "which data produced this
+model"; moving the working tree onto the matching Git commit is left to the caller
+(`git checkout <commit>`, ADR-0006), since this platform's standing rule is that Git
+history is the user's to manage, not something a use case does on their behalf. Verified
+with 13 use-case unit tests against fakes (tag collision, empty-category rejection, class
+balance, split determinism verified per-image not just per-count) and 3 integration tests
+against a real `git`+`dvc` repo with a temporary local-directory remote (round-tripping
+exact bytes through `track_and_push`/`pull` after simulating a clean checkout, and
+confirming the `.dvc` pointer file — not the data — is what Git would track). `dvc[s3]`
+moved out of Phase 5's `ml` extras into its own `versioning` group, since this phase needs
+it, not that one. Running `dataset version` against the real, already-ingested MVTec
+`bottle` rows is a manual follow-up: it needs the docker-compose Postgres+MinIO stack up,
+which was not running when this phase's code was written and verified.
+
 ---
 
-## Phase 5 — Training pipeline & experiment tracking
+## Phase 5 — Training pipeline & experiment tracking *(complete)*
 
 **Goal:** configurable, reproducible training with full lineage.
 
@@ -175,6 +259,54 @@ under Windows' default `ProactorEventLoop`; integration tests select
   metrics above and a reproducible artifact set.
 - Re-running with the same config + dataset version reproduces metrics within tolerance.
 - Switching to PaDiM is a one-line config change.
+
+**Delivered.** The plugin registry (`register_detector`/`get_detector_class`) and the
+`AnomalyDetector`/`ExperimentTracker`/`ModelRegistry` ports already existed as Phase 1
+scaffolding; this phase's real work was the adapters and the use case. A new
+`HardwareProbe` port (`domain/ports/services.py`) plus `SystemHardwareProbe`
+(`psutil`/`torch.cuda`) supplies the hardware fingerprint. `AnomalibDetector`
+(`infrastructure/detection/anomalib_adapter.py`) is the one file that touches Anomalib
+directly (ADR-0002): it stages data through `anomalib.data.Folder`, runs `Engine.fit`/
+`.test`, and — because Anomalib's own `torchmetrics` fallback silently drops
+precision/recall/confusion-matrix for this torchmetrics version — computes those itself
+from raw scores via `sklearn`. PatchCore, PaDiM, FastFlow and Reverse Distillation are thin
+subclasses fixing which Anomalib model class and default backbone they wrap. A fifth
+family, `AutoencoderDetector`, is a genuinely separate ~150-line implementation with zero
+Anomalib dependency (ADR-0002's rejected "option 2", registered anyway) — proof the plugin
+registry is not secretly coupled to one library. `MlflowExperimentTracker`/
+`MlflowModelRegistry` (ADR-0004) wrap the MLflow client; a new `ModelRegistry.
+resolve_artifact_location` method (not in the original port sketch) was added because
+nothing else could tell `ModelVersion.artifact_location` where MLflow actually wrote the
+bytes. `TrainModel` follows the fixed step sequence ADR-0009 records, with dataset staging
+as the one step broken into its own class (`_DatasetStager`) rather than a private method.
+Two new ADRs backfill decisions earlier ports had already assumed: 0008 (compute-bound
+ports are synchronous — `AnomalyDetector`, like `ImageCodec`, was written this way from
+Phase 1 without the decision ever being written down) and 0009 (the pipeline's step
+decomposition). Verified with 12 use-case unit tests against fakes (tag-collision-style
+failure handling, only-nominal-images staged, failed-fit still recorded) and 9 integration
+tests against a real MLflow server (run lifecycle, artifact round-trip, version
+registration, stage transitions, the actual S3 artifact location).
+
+Then the CLI was run for real: `factoryai train --config configs/bottle/patchcore.yaml`
+against the live `bottle-v1` dataset version (284 images, 199 train / 43 val / 42 test —
+val and test are pooled into one held-out set, since this pipeline has no separate
+hyperparameter-tuning use for val yet). PatchCore + `wide_resnet50_2` fit in ~1000 seconds
+on CPU and produced `image_AUROC=1.0`, `precision=1.0`, `recall=0.923`, `f1=0.96`
+(confusion matrix `tn=72, fp=0, fn=1, tp=12` — one missed defect out of thirteen, zero
+false alarms), registered as `factoryai-bottle` v1 in `development` stage with an 11,681
+-vector, 71.7 MB memory bank. Every field landed where it should: the `experiments` row,
+the `model_versions` row (`tags` carrying the memory-bank size), the audit chain (seq 286,
+correctly extending Phase 4's seq 285), and a 171 MB checkpoint in MinIO under MLflow's own
+key layout — all cross-checked directly, not just trusted because the CLI printed success.
+Real infrastructure surfaced a real bug synthetic testing never would have: MLflow's own
+client writes an emoji (🏃) to stdout when a run ends, and Windows' default console
+codepage (cp1252) cannot encode it — `UnicodeEncodeError` crashed the *first* live run at
+its very last step, after a genuinely successful ~13-minute fit, discarding a fitted model
+that was never persisted because nothing wrote it down. Fixed once, centrally
+(`shared/console.py`'s `configure_stdio_encoding`, called from the CLI entry point
+alongside the existing Windows event-loop fix from Phase 3) rather than patched around the
+call site — the same class of fix as `asyncio_compat.py`, and worth remembering before
+Phase 9's Celery worker or Phase 7's API process need it too.
 
 ---
 

@@ -75,7 +75,7 @@ switch ($Target) {
 
     'install-all' {
         Invoke-Step 'install all dependency groups' {
-            uv pip install -e ".[dev,storage,imaging,ml,api,auth,worker,monitoring,test-infra]"
+            uv pip install -e ".[dev,storage,imaging,versioning,ml,api,auth,worker,monitoring,test-infra]"
         }
     }
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from factoryai.domain.entities import EvaluationMetrics
-from factoryai.domain.value_objects import Category, ModelStage
+from factoryai.domain.value_objects import Category, ModelStage, StorageLocation
 
 
 class ExperimentTracker(ABC):
@@ -93,4 +93,14 @@ class ModelRegistry(ABC):
 
         Each category gets its own registry name, which is what keeps stage transitions
         for one product class from disturbing another.
+        """
+
+    @abstractmethod
+    def resolve_artifact_location(self, *, name: str, version: int) -> StorageLocation:
+        """Return where a registered version's artifact actually lives.
+
+        The registry owns artifact placement (MLflow writes into its own bucket/key
+        convention); this is what lets :class:`~factoryai.domain.entities.model.
+        ModelVersion.artifact_location` record the real location instead of one the
+        caller has to guess or reconstruct.
         """

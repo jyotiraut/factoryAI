@@ -1,10 +1,12 @@
-"""Ambient services injected so that time and randomness stay testable."""
+"""Ambient services injected so that time, randomness and the machine itself stay testable."""
 
 from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
+
+from factoryai.domain.entities import HardwareInfo
 
 
 class Clock(ABC):
@@ -41,3 +43,17 @@ class UuidGenerator(IdGenerator):
     def new_id(self) -> uuid.UUID:
         """Return a random UUID."""
         return uuid.uuid4()
+
+
+class HardwareProbe(ABC):
+    """Source of the machine's hardware fingerprint (Phase 5).
+
+    Injected rather than read directly, because the real probe needs libraries
+    (``psutil``, ``torch``) the domain does not depend on (ADR-0001) — unlike
+    :class:`Clock` and :class:`IdGenerator`, this port has no stdlib-only implementation
+    to offer here; see ``factoryai.infrastructure.monitoring.hardware`` for the real one.
+    """
+
+    @abstractmethod
+    def capture(self) -> HardwareInfo:
+        """Return a snapshot of the current machine's hardware."""
