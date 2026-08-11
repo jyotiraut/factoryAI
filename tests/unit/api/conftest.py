@@ -29,9 +29,10 @@ from tests.fakes import (
 )
 
 from factoryai.api.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware
-from factoryai.api.routers import auth, feedback, health, models, predict
+from factoryai.api.routers import auth, feedback, health, jobs, models, predict
 from factoryai.api.routers.metrics import router as metrics_router
 from factoryai.application.services.model_cache import ModelCache
+from factoryai.application.use_cases.get_job_status import GetJobStatus
 from factoryai.application.use_cases.list_production_models import ListProductionModels
 from factoryai.application.use_cases.login import Login
 from factoryai.application.use_cases.logout import Logout
@@ -41,6 +42,8 @@ from factoryai.application.use_cases.refresh_access_token import RefreshAccessTo
 from factoryai.application.use_cases.register_user import RegisterUser
 from factoryai.application.use_cases.rollback_deployment import RollbackDeployment
 from factoryai.application.use_cases.submit_feedback import SubmitFeedback
+from factoryai.application.use_cases.submit_job import SubmitJob
+from factoryai.domain.entities import Job
 from factoryai.domain.value_objects import DecodedImage, Resolution, UserId, UserRole
 from factoryai.infrastructure.auth.argon2_hasher import Argon2PasswordHasher
 from factoryai.infrastructure.auth.jwt_tokens import JwtTokenService
@@ -81,6 +84,7 @@ class FakeContainer:
             refresh_token_days=7,
         )
         self.token_revocation_list = FakeTokenRevocationList()
+        self.dispatched_jobs: list[Job] = []
 
     def unit_of_work(self) -> FakeUnitOfWork:
         """Return the single fake unit of work every call in a test shares."""
@@ -180,6 +184,24 @@ class FakeContainer:
         """Build a real :class:`ListProductionModels` wired to this container's fake."""
         return ListProductionModels(uow_factory=self.unit_of_work)
 
+    def submit_job_use_case(self) -> SubmitJob:
+        """Build a real :class:`SubmitJob` wired to this container's fakes."""
+        return SubmitJob(
+            uow_factory=self.unit_of_work, clock=FakeClock(NOW), id_generator=FakeIdGenerator()
+        )
+
+    def get_job_status_use_case(self) -> GetJobStatus:
+        """Build a real :class:`GetJobStatus` wired to this container's fake."""
+        return GetJobStatus(uow_factory=self.unit_of_work)
+
+    def dispatch_job(self, job: Job) -> None:
+        """Record the job instead of touching a real Celery broker.
+
+        These tests exercise the HTTP contract and the ``SubmitJob``/``GetJobStatus`` use
+        cases, not Celery — :attr:`dispatched_jobs` is what a test asserts against instead.
+        """
+        self.dispatched_jobs.append(job)
+
 
 def build_test_app(container: FakeContainer) -> FastAPI:
     """Build a minimal FastAPI app carrying ``container`` — no lifespan, no real settings.
@@ -197,6 +219,7 @@ def build_test_app(container: FakeContainer) -> FastAPI:
     app.include_router(predict.router)
     app.include_router(models.router)
     app.include_router(feedback.router)
+    app.include_router(jobs.router)
     app.include_router(metrics_router)
     return app
 

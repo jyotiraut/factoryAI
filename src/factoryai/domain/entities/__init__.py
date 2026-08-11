@@ -14,6 +14,7 @@ from factoryai.domain.entities.experiment import (
     HardwareInfo,
 )
 from factoryai.domain.entities.image import InspectionImage
+from factoryai.domain.entities.job import Job
 from factoryai.domain.entities.model import Deployment, ModelVersion
 from factoryai.domain.entities.monitoring import DriftReport, DriftSignal
 from factoryai.domain.entities.prediction import Feedback, Prediction
@@ -33,6 +34,7 @@ __all__ = [
     "Feedback",
     "HardwareInfo",
     "InspectionImage",
+    "Job",
     "ModelVersion",
     "Prediction",
     "User",

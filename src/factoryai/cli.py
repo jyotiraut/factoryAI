@@ -644,5 +644,47 @@ def serve(
     asyncio.run(uvicorn.Server(config).serve())
 
 
+@app.command()
+def worker(
+    queues: str = typer.Option(
+        "training,inference,reports,dead_letter",
+        "--queues",
+        help="Comma-separated Celery queues this process consumes (see ADR-0012).",
+    ),
+    concurrency: int = typer.Option(2, "--concurrency", help="Worker pool size."),
+    pool: str = typer.Option(
+        "solo",
+        "--pool",
+        help=(
+            "Celery execution pool. Defaults to 'solo': Celery's 'prefork' pool depends on "
+            "os.fork, which Windows does not have — the same class of platform gap "
+            "shared/asyncio_compat.py exists for. Pass --pool=prefork on Linux/macOS for "
+            "real concurrency; 'solo' processes one task at a time."
+        ),
+    ),
+) -> None:
+    """Run a Celery worker consuming background jobs (Phase 9, ADR-0012).
+
+    Equivalent to ``celery -A factoryai.worker.celery_app worker``, wrapped so the queue
+    list and platform-appropriate pool default live in one place instead of a shell alias
+    every operator has to remember separately.
+    """
+    from factoryai.worker.celery_app import celery_app
+
+    settings = get_settings()
+    configure_logging(
+        level=settings.log_level, log_format=settings.log_format, service="factoryai-worker"
+    )
+    celery_app.worker_main(
+        argv=[
+            "worker",
+            f"--queues={queues}",
+            f"--concurrency={concurrency}",
+            f"--pool={pool}",
+            "--loglevel=info",
+        ]
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

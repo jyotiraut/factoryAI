@@ -55,6 +55,8 @@ from factoryai.domain.value_objects import (
     ExperimentStatus,
     FeedbackVerdict,
     ImageLabel,
+    JobStatus,
+    JobType,
     ModelStage,
     ProcessingStatus,
     UserRole,
@@ -383,6 +385,37 @@ class DriftReportRow(Base):
     min_samples: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
     signals: Mapped[list[dict[str, object]]] = mapped_column(postgresql.JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class JobRow(Base):
+    """See :class:`factoryai.domain.entities.job.Job`."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_jobs_idempotency_key"),
+        CheckConstraint(f"job_type IN ({_values(*JobType)})", name="ck_jobs_type"),
+        CheckConstraint(f"status IN ({_values(*JobStatus)})", name="ck_jobs_status"),
+        Index("ix_jobs_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=JobStatus.QUEUED.value
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(postgresql.JSONB, nullable=False)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(
+        postgresql.UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result: Mapped[dict[str, object] | None] = mapped_column(postgresql.JSONB)
+    error: Mapped[str | None] = mapped_column(String(4000))
 
 
 class AuditLogRow(Base):

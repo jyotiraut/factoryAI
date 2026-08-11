@@ -24,6 +24,7 @@ from factoryai.domain.entities import (
     Experiment,
     Feedback,
     InspectionImage,
+    Job,
     ModelVersion,
     Prediction,
     User,
@@ -44,6 +45,9 @@ from factoryai.domain.value_objects import (
     FeedbackId,
     FeedbackVerdict,
     ImageId,
+    JobId,
+    JobStatus,
+    JobType,
     ModelVersionId,
     PredictionId,
     Resolution,
@@ -73,6 +77,19 @@ def an_image(**overrides: Any) -> InspectionImage:
         "uploaded_at": NOW,
     }
     return InspectionImage(**{**defaults, **overrides})
+
+
+def a_job(**overrides: Any) -> Job:
+    """Build a valid, freshly-queued job."""
+    defaults: dict[str, Any] = {
+        "id": JobId(uuid.uuid4()),
+        "job_type": JobType.BULK_INFERENCE,
+        "status": JobStatus.QUEUED,
+        "idempotency_key": f"test-key-{uuid.uuid4()}",
+        "payload": {"category": "bottle", "images": []},
+        "created_at": NOW,
+    }
+    return Job(**{**defaults, **overrides})
 
 
 def a_dataset(**overrides: Any) -> Dataset:

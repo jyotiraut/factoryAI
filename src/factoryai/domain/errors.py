@@ -176,3 +176,13 @@ class EmailAlreadyRegisteredError(DomainError):
     """A user registration named an email address already on file."""
 
     default_code = "auth.email_already_registered"
+
+
+class JobIdempotencyKeyExistsError(DomainError):
+    """A job was already submitted with this idempotency key.
+
+    Not a failure — the caller's retry-safe submission is doing exactly what it should;
+    the use case catches this and returns the existing job instead of propagating it.
+    """
+
+    default_code = "job.idempotency_key_exists"

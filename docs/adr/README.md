@@ -20,3 +20,4 @@ Format: [MADR](https://adr.github.io/madr/)-lite. Status is one of `proposed`, `
 | [0009](0009-training-pipeline-steps.md) | Training as a fixed sequence of single-responsibility steps | accepted |
 | [0010](0010-inference-service-design.md) | Inference service: cache invalidation, health split, and backpressure | accepted |
 | [0011](0011-jwt-auth-and-rbac.md) | JWT authentication, permission-keyed RBAC, and audit tamper detection | accepted |
+| [0012](0012-background-job-design.md) | Background job design: idempotency, retry/backoff, and the dead-letter queue | accepted |

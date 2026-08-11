@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from factoryai.application.services.model_cache import ModelCache
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
+from factoryai.application.use_cases.get_job_status import GetJobStatus
 from factoryai.application.use_cases.ingest_image import IngestImage
 from factoryai.application.use_cases.list_production_models import ListProductionModels
 from factoryai.application.use_cases.login import Login
@@ -28,8 +29,10 @@ from factoryai.application.use_cases.refresh_access_token import RefreshAccessTo
 from factoryai.application.use_cases.register_user import RegisterUser
 from factoryai.application.use_cases.rollback_deployment import RollbackDeployment
 from factoryai.application.use_cases.submit_feedback import SubmitFeedback
+from factoryai.application.use_cases.submit_job import SubmitJob
 from factoryai.application.use_cases.train_model import TrainModel
 from factoryai.application.use_cases.verify_audit_chain import VerifyAuditChain
+from factoryai.domain.entities import Job
 from factoryai.domain.policies.validation import (
     AllowedColorModesRule,
     AllowedFormatRule,
@@ -377,6 +380,29 @@ class Container:
     def verify_audit_chain_use_case(self) -> VerifyAuditChain:
         """Build the ``VerifyAuditChain`` use case, wired to this container's adapters."""
         return VerifyAuditChain(uow_factory=self.unit_of_work)
+
+    def submit_job_use_case(self) -> SubmitJob:
+        """Build the ``SubmitJob`` use case, wired to this container's adapters."""
+        return SubmitJob(
+            uow_factory=self.unit_of_work, clock=SystemClock(), id_generator=UuidGenerator()
+        )
+
+    def get_job_status_use_case(self) -> GetJobStatus:
+        """Build the ``GetJobStatus`` use case, wired to this container's adapters."""
+        return GetJobStatus(uow_factory=self.unit_of_work)
+
+    def dispatch_job(self, job: Job) -> None:
+        """Enqueue the Celery task matching a newly submitted job.
+
+        Imported lazily; see :attr:`experiment_tracker`. A request that never submits a
+        background job never needs ``celery`` importable — and, mirroring
+        :meth:`detector_factory`'s reasoning, keeps this composition root the one place
+        that decides which concrete task backend :class:`~factoryai.application.use_cases.
+        submit_job.SubmitJob`'s output gets handed to.
+        """
+        from factoryai.worker.tasks import dispatch
+
+        dispatch(job)
 
     async def dispose(self) -> None:
         """Release the database connection pool.

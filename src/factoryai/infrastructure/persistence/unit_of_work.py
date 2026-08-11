@@ -14,6 +14,7 @@ from factoryai.infrastructure.persistence.repositories import (
     SqlAlchemyDriftReportRepository,
     SqlAlchemyExperimentRepository,
     SqlAlchemyImageRepository,
+    SqlAlchemyJobRepository,
     SqlAlchemyModelRepository,
     SqlAlchemyPredictionRepository,
     SqlAlchemyUserRepository,
@@ -47,6 +48,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.drift_reports = SqlAlchemyDriftReportRepository(self._session)
         self.audit = SqlAlchemyAuditRepository(self._session)
         self.users = SqlAlchemyUserRepository(self._session)
+        self.jobs = SqlAlchemyJobRepository(self._session)
         return self
 
     async def __aexit__(

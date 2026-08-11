@@ -23,6 +23,7 @@ PredictionId = NewType("PredictionId", uuid.UUID)
 FeedbackId = NewType("FeedbackId", uuid.UUID)
 DriftReportId = NewType("DriftReportId", uuid.UUID)
 UserId = NewType("UserId", uuid.UUID)
+JobId = NewType("JobId", uuid.UUID)
 AuditSequence = NewType("AuditSequence", int)
 
 

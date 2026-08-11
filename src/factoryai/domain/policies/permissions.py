@@ -33,6 +33,7 @@ class Permission(StrEnum):
     ROLLBACK_MODEL = "rollback_model"
     MANAGE_USERS = "manage_users"
     VERIFY_AUDIT_CHAIN = "verify_audit_chain"
+    VIEW_JOBS = "view_jobs"
 
 
 _MINIMUM_ROLE: dict[Permission, UserRole] = {
@@ -45,6 +46,7 @@ _MINIMUM_ROLE: dict[Permission, UserRole] = {
     Permission.ROLLBACK_MODEL: UserRole.ML_ENGINEER,
     Permission.MANAGE_USERS: UserRole.ADMINISTRATOR,
     Permission.VERIFY_AUDIT_CHAIN: UserRole.ADMINISTRATOR,
+    Permission.VIEW_JOBS: UserRole.VIEWER,
 }
 """Every permission's minimum satisfying role. Exhaustive by construction — a
 :class:`Permission` member missing here is a bug, caught immediately by

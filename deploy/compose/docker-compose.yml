@@ -121,6 +121,32 @@ services:
         condition: service_completed_successfully
     networks: [factoryai]
 
+  # Phase 9: broker + result backend for the Celery worker (ADR-0012). DB 1 is the broker,
+  # DB 2 the result backend (see CelerySettings) — kept apart so flushing task results
+  # never touches messages still in flight, and vice versa.
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [factoryai]
+
+  # The worker and Flower are deliberately not containerised here, for the same reason the
+  # API itself is not (Phase 7): there is no application image yet — `factoryai serve` and
+  # now `factoryai worker` both run against this compose stack from the host, exactly like
+  # every other phase's live verification. Building and shipping a real application image
+  # is Phase 14 scope (Kubernetes/Helm), not something to half-do in Phase 9's compose file.
+  # From the host, once `make up` is running:
+  #   factoryai worker --pool=solo               # Windows; --pool=prefork on Linux/macOS
+  #   celery -A factoryai.worker.celery_app flower --port=5555
+
 networks:
   factoryai:
     name: factoryai
@@ -128,3 +154,4 @@ networks:
 volumes:
   postgres-data:
   minio-data:
+  redis-data:

@@ -127,6 +127,36 @@ class DriftSeverity(StrEnum):
 
 
 @unique
+class JobType(StrEnum):
+    """Kind of long-running work a background job performs (Phase 9)."""
+
+    BULK_INFERENCE = "bulk_inference"
+    RETRAINING = "retraining"
+    DATASET_VERSIONING = "dataset_versioning"
+    DRIFT_REPORT = "drift_report"
+
+
+@unique
+class JobStatus(StrEnum):
+    """Lifecycle of a background job.
+
+    ``FAILED`` is terminal only after retries are exhausted — a task that is about to be
+    retried stays in :attr:`RUNNING` so a client polling ``GET /jobs/{id}`` sees "still
+    working", not a false failure that later reverses itself.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Return whether no further transition is possible from this status."""
+        return self in {JobStatus.SUCCEEDED, JobStatus.FAILED}
+
+
+@unique
 class UserRole(StrEnum):
     """Platform roles, ordered from least to most privileged (Phase 8)."""
 

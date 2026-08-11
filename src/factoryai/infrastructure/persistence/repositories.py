@@ -25,11 +25,12 @@ from factoryai.domain.entities import (
     Experiment,
     Feedback,
     InspectionImage,
+    Job,
     ModelVersion,
     Prediction,
     User,
 )
-from factoryai.domain.errors import EntityNotFoundError
+from factoryai.domain.errors import EntityNotFoundError, JobIdempotencyKeyExistsError
 from factoryai.domain.ports.auth import TokenRevocationList
 from factoryai.domain.ports.repositories import (
     AuditRepository,
@@ -37,6 +38,7 @@ from factoryai.domain.ports.repositories import (
     DriftReportRepository,
     ExperimentRepository,
     ImageRepository,
+    JobRepository,
     ModelRepository,
     PredictionRepository,
     UserRepository,
@@ -48,6 +50,8 @@ from factoryai.domain.value_objects import (
     DatasetVersionId,
     ExperimentId,
     ImageId,
+    JobId,
+    JobStatus,
     ModelStage,
     ModelVersionId,
     PredictionId,
@@ -64,6 +68,7 @@ from factoryai.infrastructure.persistence.orm import (
     ExperimentRow,
     FeedbackRow,
     ImageRow,
+    JobRow,
     ModelVersionRow,
     PredictionRow,
     RevokedTokenRow,
@@ -640,6 +645,67 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self._session.get(UserRow, user_id)
         if row is None:
             raise EntityNotFoundError("User", user_id)
+        return row
+
+
+class SqlAlchemyJobRepository(JobRepository):
+    """Background job persistence backed by PostgreSQL."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        """Bind this repository to a session owned by the enclosing unit of work."""
+        self._session = session
+
+    async def add(self, job: Job) -> None:
+        """Insert a new job row.
+
+        Raises:
+            JobIdempotencyKeyExistsError: If ``job.idempotency_key`` is already in use.
+        """
+        try:
+            await _add(self._session, mappers.job_to_row(job))
+        except IntegrityError as exc:
+            raise JobIdempotencyKeyExistsError(
+                f"a job with idempotency key {job.idempotency_key!r} already exists",
+                details={"idempotency_key": job.idempotency_key},
+            ) from exc
+
+    async def update(self, job: Job) -> None:
+        """Overwrite an existing job row with the entity's current state."""
+        row = await self._get_row(job.id)
+        fresh = mappers.job_to_row(job)
+        for column in JobRow.__table__.columns:
+            if column.key != "id":
+                setattr(row, column.key, getattr(fresh, column.key))
+
+    async def get(self, job_id: JobId) -> Job:
+        """Return a job by id.
+
+        Raises:
+            EntityNotFoundError: If no such job exists.
+        """
+        return mappers.job_to_entity(await self._get_row(job_id))
+
+    async def find_by_idempotency_key(self, idempotency_key: str) -> Job | None:
+        """Return the job submitted with this key, if one exists."""
+        row = await self._session.scalar(
+            select(JobRow).where(JobRow.idempotency_key == idempotency_key)
+        )
+        return mappers.job_to_entity(row) if row else None
+
+    async def list_by_status(self, status: JobStatus, *, limit: int = 100) -> list[Job]:
+        """Return jobs in a given status, oldest first."""
+        rows = await self._session.scalars(
+            select(JobRow)
+            .where(JobRow.status == status.value)
+            .order_by(JobRow.created_at)
+            .limit(limit)
+        )
+        return [mappers.job_to_entity(row) for row in rows]
+
+    async def _get_row(self, job_id: JobId) -> JobRow:
+        row = await self._session.get(JobRow, job_id)
+        if row is None:
+            raise EntityNotFoundError("Job", job_id)
         return row
 
 

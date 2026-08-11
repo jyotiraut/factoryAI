@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from factoryai import __version__
 from factoryai.api.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware
-from factoryai.api.routers import auth, feedback, health, models, predict
+from factoryai.api.routers import auth, feedback, health, jobs, models, predict
 from factoryai.api.routers.metrics import router as metrics_router
 from factoryai.bootstrap.container import Container, build_container
 from factoryai.domain.value_objects import Category, ModelStage
@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(predict.router)
     app.include_router(models.router)
     app.include_router(feedback.router)
+    app.include_router(jobs.router)
     app.include_router(metrics_router)
     return app
 

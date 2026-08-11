@@ -30,12 +30,18 @@ from factoryai.domain.entities import (
     Feedback,
     HardwareInfo,
     InspectionImage,
+    Job,
     ModelVersion,
     Prediction,
     User,
 )
 from factoryai.domain.entities.audit import GENESIS_HASH
-from factoryai.domain.errors import CorruptImageError, EntityNotFoundError, InvariantViolationError
+from factoryai.domain.errors import (
+    CorruptImageError,
+    EntityNotFoundError,
+    InvariantViolationError,
+    JobIdempotencyKeyExistsError,
+)
 from factoryai.domain.ports.auth import TokenRevocationList
 from factoryai.domain.ports.detection import (
     AnomalyDetector,
@@ -51,6 +57,7 @@ from factoryai.domain.ports.repositories import (
     DriftReportRepository,
     ExperimentRepository,
     ImageRepository,
+    JobRepository,
     ModelRepository,
     PredictionRepository,
     UnitOfWork,
@@ -69,6 +76,8 @@ from factoryai.domain.value_objects import (
     DecodedImage,
     ExperimentId,
     ImageId,
+    JobId,
+    JobStatus,
     ModelStage,
     ModelVersionId,
     PredictionId,
@@ -644,6 +653,64 @@ class FakeUserRepository(UserRepository):
         return self._password_hashes.get(user_id)
 
 
+class FakeJobRepository(JobRepository):
+    """An in-memory job repository."""
+
+    def __init__(self) -> None:
+        """Initialise with an empty store."""
+        self._by_id: dict[JobId, Job] = {}
+
+    async def add(self, job: Job) -> None:
+        """Insert a new job.
+
+        Raises:
+            JobIdempotencyKeyExistsError: If the idempotency key is already in use.
+        """
+        if any(
+            existing.idempotency_key == job.idempotency_key for existing in self._by_id.values()
+        ):
+            raise JobIdempotencyKeyExistsError(
+                f"a job with idempotency key {job.idempotency_key!r} already exists",
+                details={"idempotency_key": job.idempotency_key},
+            )
+        self._by_id[job.id] = job
+
+    async def update(self, job: Job) -> None:
+        """Overwrite an existing job.
+
+        Raises:
+            EntityNotFoundError: If no such job exists.
+        """
+        if job.id not in self._by_id:
+            raise EntityNotFoundError("Job", job.id)
+        self._by_id[job.id] = job
+
+    async def get(self, job_id: JobId) -> Job:
+        """Return a job by id.
+
+        Raises:
+            EntityNotFoundError: If no such job exists.
+        """
+        try:
+            return self._by_id[job_id]
+        except KeyError as exc:
+            raise EntityNotFoundError("Job", job_id) from exc
+
+    async def find_by_idempotency_key(self, idempotency_key: str) -> Job | None:
+        """Return the job submitted with this key, if one exists."""
+        return next(
+            (job for job in self._by_id.values() if job.idempotency_key == idempotency_key), None
+        )
+
+    async def list_by_status(self, status: JobStatus, *, limit: int = 100) -> list[Job]:
+        """Return jobs in a given status, oldest first."""
+        matching = sorted(
+            (job for job in self._by_id.values() if job.status is status),
+            key=lambda job: job.created_at,
+        )
+        return matching[:limit]
+
+
 class FakeTokenRevocationList(TokenRevocationList):
     """An in-memory revocation list."""
 
@@ -876,6 +943,7 @@ class FakeUnitOfWork(UnitOfWork):
         self.drift_reports = FakeDriftReportRepository()
         self.audit = FakeAuditRepository()
         self.users = FakeUserRepository()
+        self.jobs = FakeJobRepository()
         self.fail_on_commit: Exception | None = None
         self.committed = False
 

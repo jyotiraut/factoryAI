@@ -24,6 +24,7 @@ from factoryai.domain.entities import (
     Experiment,
     Feedback,
     InspectionImage,
+    Job,
     ModelVersion,
     Prediction,
     User,
@@ -35,6 +36,8 @@ from factoryai.domain.value_objects import (
     DatasetVersionId,
     ExperimentId,
     ImageId,
+    JobId,
+    JobStatus,
     ModelStage,
     ModelVersionId,
     PredictionId,
@@ -333,6 +336,53 @@ class UserRepository(ABC):
         """
 
 
+class JobRepository(ABC):
+    """Persistence for background jobs (Phase 9).
+
+    ``find_by_idempotency_key`` is what makes job submission safe to retry: a use case
+    checks it before inserting, so a client that resends a request after a timeout gets
+    back the job that was already created rather than starting the work twice.
+    """
+
+    @abstractmethod
+    async def add(self, job: Job) -> None:
+        """Insert a new job record.
+
+        Raises:
+            InvariantViolationError: If ``job.idempotency_key`` already belongs to another
+                job — surfaced as a domain error, not a raw constraint violation, so a use
+                case can distinguish "duplicate submission" from any other failure.
+        """
+
+    @abstractmethod
+    async def update(self, job: Job) -> None:
+        """Persist a status transition, progress update or result/error.
+
+        Raises:
+            EntityNotFoundError: If the job does not exist.
+        """
+
+    @abstractmethod
+    async def get(self, job_id: JobId) -> Job:
+        """Return a job by identifier.
+
+        Raises:
+            EntityNotFoundError: If no such job exists.
+        """
+
+    @abstractmethod
+    async def find_by_idempotency_key(self, idempotency_key: str) -> Job | None:
+        """Return the job submitted with this key, if one exists."""
+
+    @abstractmethod
+    async def list_by_status(self, status: JobStatus, *, limit: int = 100) -> list[Job]:
+        """Return jobs in a given status, oldest first.
+
+        Used by operational tooling to inspect the queue (e.g. everything stuck
+        ``running``), not by any use case on the request path.
+        """
+
+
 class UnitOfWork(ABC):
     """Transactional boundary spanning every repository.
 
@@ -358,6 +408,7 @@ class UnitOfWork(ABC):
     drift_reports: DriftReportRepository
     audit: AuditRepository
     users: UserRepository
+    jobs: JobRepository
 
     @abstractmethod
     async def __aenter__(self) -> Self:

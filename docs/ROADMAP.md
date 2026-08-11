@@ -522,7 +522,7 @@ arbitrarily.
 
 ---
 
-## Phase 9 — Background processing
+## Phase 9 — Background processing *(complete)*
 
 **Goal:** no long operation blocks an HTTP request.
 
@@ -535,6 +535,66 @@ arbitrarily.
 **Exit criteria**
 - Submitting a 1000-image batch returns immediately with a job id and streams progress.
 - A worker crash mid-job does not lose or duplicate work.
+
+**Delivered.** ADR-0012 records the design in full; summary of what actually shipped:
+
+- A `Job` entity (`domain/entities/job.py`) with an explicit state machine
+  (`queued → running → succeeded | failed`, `running → running` for a retry) and a
+  `JobRepository` port, backed by a new `jobs` table (migration `6fde47217f90`) with a real
+  unique constraint on `idempotency_key` — not just an application-level check, which would
+  race under concurrent submission.
+- `SubmitJob` (dedupe-or-create against the idempotency key) and `GetJobStatus` use cases,
+  plus three routes — `POST /jobs/{bulk-predict,retrain,dataset-version}` and
+  `GET /jobs/{id}` — all requiring an `Idempotency-Key` header on submission and gated by
+  the existing permission matrix (`submit_prediction`/`train_model`/`manage_datasets` to
+  submit; a new `view_jobs` permission, viewer-and-above, to read status).
+- `factoryai.worker`, a new top-level package sitting alongside `api`/`cli` (the same
+  placement precedent, not one of the four import-linter-governed layers): `celery_app.py`
+  configures four queues (`training`, `inference`, `reports`, `dead_letter`); `tasks.py`
+  holds one Celery task per job type, each re-reading its payload from the `jobs` row
+  rather than the Celery message, and a `JobTask` base class whose `on_failure` marks the
+  job `failed` and records it onto `dead_letter` once retries are exhausted — never on an
+  attempt that will still retry. Retry policy is Celery's own exponential backoff
+  (`autoretry_for`, `retry_backoff`, `retry_jitter`, a capped `max_retries`) on every task
+  that touches real infrastructure.
+- Bulk inference references already-uploaded images by `{bucket, key}`, never inline bytes
+  — a 1000-image submission over Celery's broker has to stay small, which the ROADMAP's own
+  exit-criterion number ruled out from the start. Retraining and dataset-versioning jobs
+  are thin payload-to-command translations over the existing `TrainModel` and
+  `CreateDatasetVersion` use cases from Phases 4–5 — no new business logic, exactly as
+  ADR-0005 already committed to ("Airflow DAG files and Celery task functions contain no
+  business logic").
+- `factoryai worker` (CLI) wraps `celery_app.worker_main(...)`, defaulting to Celery's
+  `solo` pool: `prefork` depends on `os.fork`, which Windows does not have — the same class
+  of platform gap `shared/asyncio_compat.py` and `shared/console.py` already exist for.
+  `--pool=prefork` is documented for the Linux/macOS deployment target.
+- One scope cut, documented rather than faked: `run_drift_report` always raises
+  `NotImplementedError` and carries `max_retries=0` — drift detection does not exist until
+  Phase 11, so the fourth job type is wired end-to-end (queue routing, job status,
+  dead-letter path) with nothing behind it yet, rather than either skipping the type
+  entirely or half-simulating a result.
+- `deploy/compose/docker-compose.yml` gained a real `redis` service (broker + result
+  backend, separate Redis logical DBs per ADR-0012). The worker and Flower are
+  deliberately *not* containerised there, for the same reason the API process isn't
+  (Phase 7): there is no application image yet. `factoryai worker` and
+  `celery -A factoryai.worker.celery_app flower` both run from the host against the
+  compose stack, exactly like `factoryai serve` already does — building a real image is
+  Phase 14 (Kubernetes/Helm) scope.
+- Verified with 27 unit tests (`Job` entity transitions and invariants; `SubmitJob`
+  idempotency-dedupe and concurrent-race handling against fakes; `GetJobStatus`; every
+  `/jobs/*` route against a FastAPI `TestClient` wired to a duck-typed fake container that
+  records dispatched jobs instead of touching a real broker) plus a new PostgreSQL
+  integration test suite covering the real unique-constraint-backed idempotency guarantee
+  a fake cannot exercise. `ruff`, `mypy --strict`, and the import-linter layer contracts all
+  pass against the full changed surface.
+
+Live end-to-end verification against a running Redis + Celery worker (submitting a real
+1000-image batch, killing a worker mid-job to confirm redelivery-without-duplication, and
+watching a permanently failed task land on `dead_letter` in Flower) is a manual follow-up:
+it needs `docker compose up redis` and a running `factoryai worker`, which this
+environment's Docker daemon was not available to exercise while this phase's code was
+written and verified — the same kind of gap Phase 4's dataset-versioning CLI run was left
+as a documented follow-up for, not silently skipped.
 
 ---
 

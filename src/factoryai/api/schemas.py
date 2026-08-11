@@ -158,3 +158,59 @@ class AuditVerificationResponse(BaseModel):
     total_events: int
     is_intact: bool
     first_broken_sequence: int | None = None
+
+
+class ImageReference(BaseModel):
+    """A previously-uploaded raw image, identified by its object store location."""
+
+    bucket: str
+    key: str
+
+
+class BulkInferenceJobRequest(BaseModel):
+    """A batch of already-stored images to score, submitted as a background job."""
+
+    category: str
+    images: list[ImageReference] = Field(min_length=1)
+
+
+class RetrainingJobRequest(BaseModel):
+    """A training run to submit as a background job — mirrors ``factoryai train``'s config."""
+
+    dataset_name: str
+    dataset_version_tag: str
+    category: str
+    model_name: str
+    backbone: str | None = None
+    hyperparameters: dict[str, object] = Field(default_factory=dict)
+    image_size: tuple[int, int] = (256, 256)
+    seed: int = 42
+    device: Literal["auto", "cpu", "cuda"] = "auto"
+    note: str = ""
+
+
+class DatasetVersioningJobRequest(BaseModel):
+    """A dataset version to freeze, submitted as a background job."""
+
+    dataset_name: str
+    category: str
+    version_tag: str
+    seed: int = 42
+    split_ratios: dict[str, float] | None = None
+    note: str = ""
+
+
+class JobResponse(BaseModel):
+    """The current state of a background job, as returned by ``GET /jobs/{id}``."""
+
+    job_id: str
+    job_type: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    attempts: int
+    progress_completed: int
+    progress_total: int
+    result: dict[str, object] | None = None
+    error: str | None = None

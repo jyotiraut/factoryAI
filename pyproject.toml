@@ -177,6 +177,10 @@ ignore = [
 # not the mutable-default footgun B008 exists to catch (same rationale as cli.py's
 # typer.Option()).
 "src/factoryai/api/**" = ["B008"]
+# Celery's task signature (`bind=True` tasks take `self` even when unused) and
+# `Task.on_failure`'s fixed parameter list (`task_id` is part of Celery's own contract, not
+# something every override needs) are dictated by the library, not by this file's design.
+"src/factoryai/worker/tasks.py" = ["ARG001", "ARG002"]
 # Alembic generates the module docstring's first line ("initial schema", "add x column")
 # from the -m message; enforcing terminal punctuation there fights the tool, not a smell.
 "database/migrations/versions/**" = ["D415", "D103", "D100"]
@@ -225,6 +229,7 @@ module = [
     "sklearn.*",
     "torchvision.*",
     "psutil.*",
+    "celery.*",
 ]
 ignore_missing_imports = true
 

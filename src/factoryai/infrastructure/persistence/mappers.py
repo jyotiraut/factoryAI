@@ -24,6 +24,7 @@ from factoryai.domain.entities import (
     Feedback,
     HardwareInfo,
     InspectionImage,
+    Job,
     ModelVersion,
     Prediction,
     User,
@@ -45,6 +46,9 @@ from factoryai.domain.value_objects import (
     FeedbackVerdict,
     ImageId,
     ImageLabel,
+    JobId,
+    JobStatus,
+    JobType,
     ModelStage,
     ModelVersionId,
     PredictionId,
@@ -64,6 +68,7 @@ from factoryai.infrastructure.persistence.orm import (
     ExperimentRow,
     FeedbackRow,
     ImageRow,
+    JobRow,
     ModelVersionRow,
     PredictionRow,
     UserRow,
@@ -509,4 +514,49 @@ def audit_event_to_entity(row: AuditLogRow) -> AuditEvent:
         resource_id=row.resource_id,
         payload=dict(row.payload),
         correlation_id=row.correlation_id,
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Job
+# --------------------------------------------------------------------------------------
+
+
+def job_to_row(job: Job) -> JobRow:
+    """Build a row from a job entity."""
+    return JobRow(
+        id=job.id,
+        job_type=job.job_type.value,
+        status=job.status.value,
+        idempotency_key=job.idempotency_key,
+        payload=dict(job.payload),
+        submitted_by=job.submitted_by,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        attempts=job.attempts,
+        progress_completed=job.progress_completed,
+        progress_total=job.progress_total,
+        result=dict(job.result) if job.result is not None else None,
+        error=job.error,
+    )
+
+
+def job_to_entity(row: JobRow) -> Job:
+    """Build a job entity from a row."""
+    return Job(
+        id=JobId(row.id),
+        job_type=JobType(row.job_type),
+        status=JobStatus(row.status),
+        idempotency_key=row.idempotency_key,
+        payload=dict(row.payload),
+        submitted_by=UserId(row.submitted_by) if row.submitted_by else None,
+        created_at=row.created_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        attempts=row.attempts,
+        progress_completed=row.progress_completed,
+        progress_total=row.progress_total,
+        result=dict(row.result) if row.result is not None else None,
+        error=row.error,
     )
