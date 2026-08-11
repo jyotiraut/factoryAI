@@ -36,6 +36,7 @@ from factoryai.domain.entities import (
 )
 from factoryai.domain.entities.audit import GENESIS_HASH
 from factoryai.domain.errors import CorruptImageError, EntityNotFoundError, InvariantViolationError
+from factoryai.domain.ports.auth import TokenRevocationList
 from factoryai.domain.ports.detection import (
     AnomalyDetector,
     DetectorNotLoadedError,
@@ -580,6 +581,10 @@ class FakeAuditRepository(AuditRepository):
         ]
         return list(reversed(matches))[:limit]
 
+    async def list_all(self) -> list[AuditEvent]:
+        """Return every event, oldest first."""
+        return list(self._events)
+
 
 class FakeUserRepository(UserRepository):
     """An in-memory user repository."""
@@ -587,6 +592,7 @@ class FakeUserRepository(UserRepository):
     def __init__(self) -> None:
         """Initialise with an empty store."""
         self._by_id: dict[UserId, User] = {}
+        self._password_hashes: dict[UserId, str] = {}
 
     async def add(self, user: User) -> None:
         """Insert a new user."""
@@ -616,6 +622,42 @@ class FakeUserRepository(UserRepository):
     async def find_by_email(self, email: str) -> User | None:
         """Return a user by their email address, if one exists."""
         return next((u for u in self._by_id.values() if u.email == email), None)
+
+    async def set_password_hash(self, user_id: UserId, password_hash: str) -> None:
+        """Store a user's password hash.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
+        if user_id not in self._by_id:
+            raise EntityNotFoundError("User", user_id)
+        self._password_hashes[user_id] = password_hash
+
+    async def get_password_hash(self, user_id: UserId) -> str | None:
+        """Return a user's password hash, or ``None`` if one was never set.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
+        if user_id not in self._by_id:
+            raise EntityNotFoundError("User", user_id)
+        return self._password_hashes.get(user_id)
+
+
+class FakeTokenRevocationList(TokenRevocationList):
+    """An in-memory revocation list."""
+
+    def __init__(self) -> None:
+        """Initialise with an empty set of revoked identifiers."""
+        self._revoked: set[str] = set()
+
+    async def revoke(self, jti: str, *, expires_at: datetime) -> None:
+        """Blacklist a refresh token identifier."""
+        self._revoked.add(jti)
+
+    async def is_revoked(self, jti: str) -> bool:
+        """Return whether a refresh token identifier has been revoked."""
+        return jti in self._revoked
 
 
 class FakeAnomalyDetector(AnomalyDetector):
@@ -772,10 +814,18 @@ class FakeModelRegistry(ModelRegistry):
         self._stages[(name, version)] = stage
 
     def download(self, *, name: str, version: int, destination: Path) -> Path:
-        """Write a placeholder file and return its path — no real artifact exists."""
+        """Write a placeholder file inside ``destination`` and return its path.
+
+        Mirrors the real ``MlflowModelRegistry.download``'s actual contract:
+        ``destination`` is a directory the artifact is materialised *into*, not the
+        target file path itself — the real adapter's ``mlflow.artifacts.
+        download_artifacts(dst_path=...)`` call treats it the same way.
+        """
         del name, version
-        destination.write_bytes(b"fake-artifact")
-        return destination
+        destination.mkdir(parents=True, exist_ok=True)
+        artifact_path = destination / "fake-artifact.bin"
+        artifact_path.write_bytes(b"fake-artifact")
+        return artifact_path
 
     def get_stage_version(self, *, name: str, stage: ModelStage) -> int | None:
         """Return the version currently occupying a stage, if any."""

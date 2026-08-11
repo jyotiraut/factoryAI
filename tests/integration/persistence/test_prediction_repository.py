@@ -125,6 +125,32 @@ async def test_list_in_window_filters_by_time(uow: SqlAlchemyUnitOfWork) -> None
     assert outside.id not in ids
 
 
+async def test_add_feedback_with_an_unknown_user_raises_entity_not_found(
+    uow: SqlAlchemyUnitOfWork,
+) -> None:
+    """A foreign-key violation on ``user_id`` must surface as a domain error.
+
+    ``POST /feedback`` (Phase 7) is the first caller passing a client-supplied user id
+    straight through with no auth layer (Phase 8) to have validated it first — hitting
+    this live during Phase 7's verification surfaced a raw, uncaught ``IntegrityError``
+    (a 500) instead of the clean 404 an unrecognised id should produce.
+    """
+    image_id, model_id, version_id = await _seed_model_and_image(uow)
+    prediction = a_prediction(
+        image_id=image_id, model_version_id=model_id, dataset_version_id=version_id
+    )
+    feedback = some_feedback(prediction_id=prediction.id, user_id=uuid.uuid4())
+
+    async with uow:
+        await uow.predictions.add(prediction)
+        await uow.commit()
+
+    with pytest.raises(EntityNotFoundError):
+        async with uow:
+            await uow.predictions.add_feedback(feedback)
+            await uow.commit()
+
+
 async def test_feedback_correction_is_listed_since_a_given_time(
     uow: SqlAlchemyUnitOfWork,
 ) -> None:

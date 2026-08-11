@@ -12,6 +12,10 @@ from pathlib import Path
 
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
 from factoryai.application.use_cases.ingest_image import IngestImage
+from factoryai.application.use_cases.list_production_models import ListProductionModels
+from factoryai.application.use_cases.promote_model import PromoteModel, PromotionGate
+from factoryai.application.use_cases.rollback_deployment import RollbackDeployment
+from factoryai.application.use_cases.submit_feedback import SubmitFeedback
 from factoryai.application.use_cases.train_model import TrainModel
 from factoryai.domain.policies.validation import (
     AllowedColorModesRule,
@@ -109,3 +113,52 @@ def make_train_model_use_case(
         workdir=workdir,
         mlflow_experiment_name=mlflow_experiment_name,
     )
+
+
+_DEFAULT_GATE = PromotionGate()
+
+
+def make_promote_model_use_case(
+    *,
+    uow: FakeUnitOfWork,
+    model_registry: ModelRegistry,
+    clock: Clock,
+    id_generator: IdGenerator,
+    gate: PromotionGate = _DEFAULT_GATE,
+) -> PromoteModel:
+    """Build a :class:`PromoteModel` use case wired to the given fakes."""
+    return PromoteModel(
+        uow_factory=lambda: uow,
+        model_registry=model_registry,
+        gate=gate,
+        clock=clock,
+        id_generator=id_generator,
+    )
+
+
+def make_rollback_deployment_use_case(
+    *,
+    uow: FakeUnitOfWork,
+    model_registry: ModelRegistry,
+    clock: Clock,
+    id_generator: IdGenerator,
+) -> RollbackDeployment:
+    """Build a :class:`RollbackDeployment` use case wired to the given fakes."""
+    return RollbackDeployment(
+        uow_factory=lambda: uow,
+        model_registry=model_registry,
+        clock=clock,
+        id_generator=id_generator,
+    )
+
+
+def make_submit_feedback_use_case(
+    *, uow: FakeUnitOfWork, clock: Clock, id_generator: IdGenerator
+) -> SubmitFeedback:
+    """Build a :class:`SubmitFeedback` use case wired to the given fakes."""
+    return SubmitFeedback(uow_factory=lambda: uow, clock=clock, id_generator=id_generator)
+
+
+def make_list_production_models_use_case(*, uow: FakeUnitOfWork) -> ListProductionModels:
+    """Build a :class:`ListProductionModels` use case wired to the given fake."""
+    return ListProductionModels(uow_factory=lambda: uow)

@@ -310,7 +310,7 @@ Phase 9's Celery worker or Phase 7's API process need it too.
 
 ---
 
-## Phase 6 — Model registry & promotion gates
+## Phase 6 — Model registry & promotion gates *(complete)*
 
 **Goal:** models move between stages only when they earn it.
 
@@ -326,9 +326,61 @@ Phase 9's Celery worker or Phase 7's API process need it too.
 - A worse candidate is rejected with a machine-readable comparison report.
 - Rollback to any previous production version is one command and fully audited.
 
+**Delivered.** Almost everything this phase needed already existed as Phase 1-2
+scaffolding — `ModelStage`, `ModelVersion.transition_to` with its
+`_ALLOWED_STAGE_TRANSITIONS` graph, `Deployment` (with `DeploymentAction.REJECT` already
+documented as "recorded as deliberately as a promotion"), `PromotionSettings`, and even
+`PromotionRejectedError`. The actual gap was the two use cases. `PromoteModel` reads the
+category's current production model (if any) via `find_by_stage`, evaluates a `PromotionGate`
+(absolute AUROC floor, improvement margin over the incumbent, max recall regression) via a
+pure `_evaluate_gate` function, and either promotes (advancing Development/Archived →
+Staging → Production in one step, archiving the displaced incumbent, syncing MLflow's own
+registry stage) or rejects — and a rejection is written down as a `Deployment` with
+`action="reject"` and the full numeric comparison, exactly as deliberately as an acceptance.
+`RollbackDeployment` shares the same Development/Archived → Production helper
+(`advance_to_production`) and needs no gate: the target already earned production once. When
+no explicit target is given, it walks `list_deployments` history for the most recent
+entry that changed production and isn't the current occupant — this is what makes
+"rollback to any previous version" a real, working default rather than requiring the
+caller to already know the UUID. CLI: `factoryai model promote --category ... --model-version-id ...`
+and `factoryai model rollback --category ... [--to ...]`. Verified with 13 use-case unit
+tests against fakes (first promotion with no incumbent, better-candidate replacement,
+absolute-floor rejection, margin rejection, recall-regression rejection, archived-candidate
+restoration, default-target history resolution) — plus **1 integration test against real
+PostgreSQL that unit tests against fakes structurally cannot write**, because
+`FakeUnitOfWork.__aexit__` is a no-op regardless of exceptions.
+
+That gap was not theoretical. Live-verifying against the real, already-registered
+`factoryai-bottle` v1 model from Phase 5 surfaced a real bug: `PromoteModel.execute()`
+called `await uow.commit()` and then raised `PromotionRejectedError` *inside* the same
+`async with self._uow_factory() as uow:` block. `SqlAlchemyUnitOfWork.__aexit__` only
+commits `if exc is None and self._committed` — an exception propagating out of the block
+means `exc` is not `None`, so it rolled back regardless of the explicit commit, silently
+discarding the very rejection record this phase's exit criteria require. Live promotion of
+a genuinely weak synthetic candidate showed the rejection message on screen but left no
+`Deployment` row and no audit event behind — exactly the kind of bug a `FakeUnitOfWork`
+(whose `__aexit__` is unconditionally a no-op) can never surface, since it doesn't model
+transactional rollback at all. Fixed by restructuring `execute()` to raise only *after*
+the `async with` block exits cleanly on the committed path, with a regression test added
+against real PostgreSQL (`tests/integration/application/test_promote_model_integration.py`)
+specifically to keep this from regressing silently again.
+
+Live end-to-end, against the real stack: promoted `factoryai-bottle` v1 (Phase 5's real
+PatchCore model, AUROC 1.0) straight to production with no incumbent — passed instantly.
+Registered a second MLflow model version from the same run to exercise a real
+candidate-vs-incumbent comparison (an incumbent already at the AUROC ceiling of 1.0 makes
+`improvement_margin` mathematically impossible to satisfy without relaxing it, so this run
+used `PROMOTION_IMPROVEMENT_MARGIN=0` — noted here rather than left implicit), promoted it,
+confirmed v1 correctly archived and MLflow's own registry stage in sync
+(`client.get_model_version(...).current_stage == "Production"`), then rolled back with no
+explicit `--to` and confirmed the default-target history resolution correctly restored v1
+and archived v2 — audit chain sequential throughout (seq 287-291: promote, promote,
+rollback, reject). Then re-ran the rejection case that had originally exposed the bug and
+confirmed the `Deployment` row and audit event now actually persist.
+
 ---
 
-## Phase 7 — Inference service
+## Phase 7 — Inference service *(complete)*
 
 **Goal:** production FastAPI service serving the registered production model.
 
@@ -346,9 +398,68 @@ Phase 9's Celery worker or Phase 7's API process need it too.
 - `/health` correctly reports degraded when the registry or DB is unreachable.
 - OpenAPI schema published; contract tests pin the response shape.
 
+**Delivered.** `factoryai.api`, a new top-level package sitting alongside `cli.py` rather
+than inside the four import-linter-governed layers (the same placement `cli.py` already
+uses) — a `Container` composition root serves both presentation adapters unchanged. Three
+new use cases (`PredictImage`, `SubmitFeedback`, `ListProductionModels`) and one new
+stateful service, `ModelCache`, which is the whole hot-reload mechanism: it compares the
+category's current production `ModelVersion.id` (read from PostgreSQL — ADR-0004's
+authority — on every request anyway) against whatever detector is already loaded, and
+only re-downloads and reloads on a mismatch. No poller, no MLflow round trip on the
+request path. ADR-0010 records this decision plus the liveness/readiness split
+(`/health/live` never touches a dependency; `/health/ready` checks a real Postgres query
+and MLflow's own `/health` endpoint) and the three independent backpressure mechanisms
+(a `Content-Length`-checking middleware, an `asyncio.Semaphore` sized by
+`API_MAX_CONCURRENT_PREDICTIONS`, `asyncio.timeout` per request). Verified with 27 unit
+tests (`ModelCache`, `PredictImage`, `SubmitFeedback`, `ListProductionModels` against
+fakes; every endpoint against a FastAPI `TestClient` wired to a duck-typed fake container;
+a contract suite pinning `PredictionResponse`'s exact field set and bounds against the
+real generated OpenAPI schema) plus a new PostgreSQL integration test.
+
+Then the real server was run — `factoryai serve`, not plain `uvicorn factoryai.api.main:
+app` — against the real, already-promoted `factoryai-bottle` v1 model, and real MVTec
+bottle images were sent through every endpoint: `/predict` and `/batch-predict` correctly
+flagged real `broken_large`/`broken_small` defects and passed real `good` images, each
+with a working presigned heatmap URL (fetched directly and confirmed as a real 12 KB PNG);
+`/models` reported the live production model with its real metrics; `/metrics` showed real
+Prometheus counters and a latency histogram after seven served predictions; `/feedback`
+recorded a real correction. Real infrastructure surfaced three real bugs synthetic testing
+never would have:
+
+1. **uvicorn forces `ProactorEventLoop` for its own main-process loop on Windows by
+   design** (`uvicorn.loops.asyncio.asyncio_loop_factory`, `use_subprocess=False`), which
+   is exactly the loop psycopg's async driver refuses to run under — the same conflict
+   Phase 3 already fixed for the CLI, but uvicorn's own `Server.run()` reasserts it via
+   `asyncio_run(..., loop_factory=...)` regardless of any policy set beforehand, so the
+   CLI's existing fix couldn't reach it. Fixed by having `factoryai serve` drive
+   `Server.serve()` directly inside our own `asyncio.run()`, bypassing uvicorn's loop
+   selection entirely — plain `uvicorn factoryai.api.main:app` still breaks on Windows,
+   documented as such directly in the `serve` command's docstring.
+2. **Scoring an image already on file — the same physical product photographed twice, or
+   here, an MVTec file already ingested during Phase 3 — violated `images.
+   checksum_sha256`'s uniqueness constraint**, a real design gap: the constraint is
+   correct for ingestion's exact-duplicate detection, but inference must always score,
+   never reject, so it cannot share ingestion's "reject the duplicate" response. Fixed by
+   resolving each image by content checksum first: an existing row is reused (a second
+   `Prediction` against the same `InspectionImage`), and a repeat within the *same* batch
+   resolves to the one new row the batch itself is about to insert, not a second one.
+3. **A client-supplied `user_id` that names no real user (inevitable pre-Phase-8, since
+   nothing validates it before `POST /feedback` reaches the repository) raised a raw,
+   uncaught `IntegrityError` — a 500 instead of a 404.** Fixed at the infrastructure layer
+   (`SqlAlchemyPredictionRepository.add_feedback`, which is where a driver-specific
+   exception is allowed to be known about at all) by translating the foreign-key
+   violation into `EntityNotFoundError`, with a new PostgreSQL integration test guarding
+   it — a `FakeUnitOfWork` has no foreign keys to violate and could never have caught this.
+
+Real p95 datapoint for the exit criteria: seven live predictions against PatchCore +
+`wide_resnet50_2` on CPU, latencies from 563 ms to 1047 ms (`factoryai_prediction_latency_
+seconds` histogram: 5/7 ≤ 0.75 s, 6/7 ≤ 1.0 s, 7/7 ≤ 2.5 s) — a single-image budget of
+**2 seconds on CPU** is met with room to spare, documented here rather than picked
+arbitrarily.
+
 ---
 
-## Phase 8 — Authentication, RBAC and audit logging
+## Phase 8 — Authentication, RBAC and audit logging *(complete)*
 
 **Goal:** the platform is safe to expose inside a factory network.
 
@@ -362,6 +473,52 @@ Phase 9's Celery worker or Phase 7's API process need it too.
 **Exit criteria**
 - An Operator cannot promote a model; a Viewer cannot submit feedback. Tested.
 - Audit chain verification script detects any tampered or deleted row.
+
+**Delivered.** ADR-0011 records the design in full; summary of what actually shipped:
+
+- `domain.ports.auth` (`PasswordHasher`, `TokenService`, `TokenRevocationList`) plus real
+  adapters — `Argon2PasswordHasher` (argon2id) and `JwtTokenService` (PyJWT, HS256,
+  distinct `access`/`refresh` claim types so one can never be replayed as the other).
+  `password_hash` lives on the `users` row, reached via two new `UserRepository` methods
+  (`set_password_hash`/`get_password_hash`); the `User` entity itself still carries no
+  credential, exactly as designed since Phase 1.
+- `domain.policies.permissions`: a `Permission` enum keyed to its minimum satisfying
+  `UserRole`, not a raw rank check at every call site — `has_permission(user, permission)`
+  is the one function every route, use case and CLI command calls to decide access.
+- `RegisterUser`, `Login`, `RefreshAccessToken`, `Logout` use cases; `VerifyAuditChain`
+  (`factoryai audit verify`), which finally calls the `verify_chain()` algorithm written
+  in Phase 2 and never previously wired to anything.
+- Every Phase 7 route gained `require_permission(...)` guards via a new
+  `api.dependencies.get_current_user`, which re-fetches the user from PostgreSQL on every
+  request rather than trusting the access token's own role claim — a demotion or
+  deactivation takes effect on the very next request. `POST /feedback` no longer accepts a
+  client-supplied `user_id`; the authenticated principal is used instead, closing a
+  documented Phase 7 gap. `/health/*` and `/metrics` stay unguarded (operational endpoints
+  polled by infrastructure, not end users).
+- New HTTP surface: `/auth/{login,refresh,logout,register}` and, for the first time,
+  `POST /models/{category}/{promote,rollback}` — Phase 6 was CLI-only; testing "an
+  operator cannot promote" as an exit criterion needed a route to test against.
+- New migration `a1c9e6f2b3d4`: `users.password_hash` and `revoked_tokens`.
+- A real bug found only by the new Postgres integration test
+  (`tests/integration/persistence/test_auth_persistence.py`): `SqlAlchemyUserRepository.
+  update()` copied every column from a freshly built row onto the tracked one, including
+  `password_hash` — which the mapper never sets — so a role change or deactivation
+  silently wiped a user's password hash to `NULL`. Fixed by excluding that column from the
+  copy, same pattern as the existing `id` exclusion.
+- Live-verified against the real running stack: created one user per role via
+  `factoryai user create`; logged in as each over real HTTP; confirmed 401 with no token,
+  403 for an operator hitting `/models/{category}/promote` and `/auth/register`, 403 for a
+  viewer hitting `/feedback`, 404 (not 403) for an ml_engineer promoting a nonexistent
+  model version (proving the permission check passes through to the use case); exercised
+  `/auth/refresh` and confirmed `/auth/logout` really invalidates the refresh token (401 on
+  reuse); ran a full `/predict` → `/feedback` round trip as an authenticated operator
+  against the real PatchCore model. `factoryai audit verify` against this same
+  long-lived database (accumulated across every earlier phase's live verification) found
+  one genuine sequence gap (290 missing, otherwise unbroken) dated to Phase 6's original
+  live testing of the promotion gate — almost certainly a leftover artifact from the
+  commit-then-raise bug that phase's own ADR documents finding and fixing. The script
+  correctly reported it as a break with a non-zero exit code: a real anomaly, on real
+  accumulated data, caught by the exact mechanism this phase's exit criterion asked for.
 
 ---
 

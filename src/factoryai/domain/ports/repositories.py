@@ -277,12 +277,23 @@ class AuditRepository(ABC):
     ) -> list[AuditEvent]:
         """Return the audit trail for one entity, newest first."""
 
+    @abstractmethod
+    async def list_all(self) -> list[AuditEvent]:
+        """Return every record in the chain, oldest first.
+
+        This is what tamper detection reads: :func:`~factoryai.domain.entities.audit.
+        verify_chain` needs the *whole* chain, in sequence order, to recompute every link.
+        """
+
 
 class UserRepository(ABC):
     """Persistence for platform users.
 
-    Credentials are handled by the auth adapter, not here — the domain never sees a
-    password or a hash.
+    Credentials are handled by the auth adapter, not here — the :class:`User` entity
+    itself never carries a password or a hash (see its docstring). The hash still has to
+    live *somewhere*, though, and the natural place is the same ``users`` row the rest of
+    this repository already owns; :meth:`set_password_hash`/:meth:`get_password_hash` are
+    that extra column's accessors, kept off the entity but not off the repository.
     """
 
     @abstractmethod
@@ -304,6 +315,22 @@ class UserRepository(ABC):
     @abstractmethod
     async def find_by_email(self, email: str) -> User | None:
         """Return a user by their lowercase email address, if one exists."""
+
+    @abstractmethod
+    async def set_password_hash(self, user_id: UserId, password_hash: str) -> None:
+        """Store a user's password hash, overwriting any previous value.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
+
+    @abstractmethod
+    async def get_password_hash(self, user_id: UserId) -> str | None:
+        """Return a user's password hash, or ``None`` if one was never set.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
 
 
 class UnitOfWork(ABC):

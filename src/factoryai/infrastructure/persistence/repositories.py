@@ -8,11 +8,12 @@ not belong here — see ``docs/ARCHITECTURE.md`` §2.2 for where they do.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypeVar
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, selectinload
 
 from factoryai.domain.entities import (
@@ -29,6 +30,7 @@ from factoryai.domain.entities import (
     User,
 )
 from factoryai.domain.errors import EntityNotFoundError
+from factoryai.domain.ports.auth import TokenRevocationList
 from factoryai.domain.ports.repositories import (
     AuditRepository,
     DatasetRepository,
@@ -64,6 +66,7 @@ from factoryai.infrastructure.persistence.orm import (
     ImageRow,
     ModelVersionRow,
     PredictionRow,
+    RevokedTokenRow,
     UserRow,
 )
 from factoryai.shared.errors import TransientError
@@ -455,8 +458,22 @@ class SqlAlchemyPredictionRepository(PredictionRepository):
         return [mappers.prediction_to_entity(row) for row in rows]
 
     async def add_feedback(self, feedback: Feedback) -> None:
-        """Append an operator feedback row."""
-        await _add(self._session, mappers.feedback_to_row(feedback))
+        """Append an operator feedback row.
+
+        Raises:
+            EntityNotFoundError: If ``feedback.user_id`` names no existing user. Surfaced
+                explicitly rather than left as a raw ``IntegrityError`` because
+                ``POST /feedback`` (Phase 7) is the first caller passing a client-supplied
+                user id straight through with no auth layer (Phase 8) to have validated it
+                first — a bad id from an HTTP caller is an expected occurrence, not a bug.
+        """
+        try:
+            await _add(self._session, mappers.feedback_to_row(feedback))
+        except IntegrityError as exc:
+            # Translated, not rolled back here: the enclosing unit of work's __aexit__
+            # rolls back the whole transaction once this propagates out of it, exactly as
+            # it already does for any other exception (see SqlAlchemyUnitOfWork).
+            raise EntityNotFoundError("User", feedback.user_id) from exc
 
     async def list_corrections(self, category: Category, *, since: datetime) -> list[Feedback]:
         """Return feedback that overturned a prediction, for the next training round."""
@@ -557,6 +574,11 @@ class SqlAlchemyAuditRepository(AuditRepository):
         )
         return [mappers.audit_event_to_entity(row) for row in rows]
 
+    async def list_all(self) -> list[AuditEvent]:
+        """Return every record in the chain, oldest first."""
+        rows = await self._session.scalars(select(AuditLogRow).order_by(AuditLogRow.seq))
+        return [mappers.audit_event_to_entity(row) for row in rows]
+
 
 class SqlAlchemyUserRepository(UserRepository):
     """User persistence backed by PostgreSQL."""
@@ -570,11 +592,18 @@ class SqlAlchemyUserRepository(UserRepository):
         await _add(self._session, mappers.user_to_row(user))
 
     async def update(self, user: User) -> None:
-        """Overwrite an existing user row with the entity's current state."""
+        """Overwrite an existing user row with the entity's current state.
+
+        Leaves ``password_hash`` untouched: :func:`~factoryai.infrastructure.persistence.
+        mappers.user_to_row` never sets it (the entity does not carry one — see
+        :class:`~factoryai.domain.entities.user.User`'s docstring), so copying every column
+        from a freshly built row would silently wipe a real hash on every role change or
+        deactivation. Only :meth:`set_password_hash` may touch that column.
+        """
         row = await self._get_row(user.id)
         fresh = mappers.user_to_row(user)
         for column in UserRow.__table__.columns:
-            if column.key != "id":
+            if column.key not in {"id", "password_hash"}:
                 setattr(row, column.key, getattr(fresh, column.key))
 
     async def get(self, user_id: UserId) -> User:
@@ -590,11 +619,57 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self._session.scalar(select(UserRow).where(UserRow.email == email))
         return mappers.user_to_entity(row) if row else None
 
+    async def set_password_hash(self, user_id: UserId, password_hash: str) -> None:
+        """Overwrite a user's password hash.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
+        row = await self._get_row(user_id)
+        row.password_hash = password_hash
+
+    async def get_password_hash(self, user_id: UserId) -> str | None:
+        """Return a user's password hash, or ``None`` if one was never set.
+
+        Raises:
+            EntityNotFoundError: If no such user exists.
+        """
+        return (await self._get_row(user_id)).password_hash
+
     async def _get_row(self, user_id: UserId) -> UserRow:
         row = await self._session.get(UserRow, user_id)
         if row is None:
             raise EntityNotFoundError("User", user_id)
         return row
+
+
+class SqlAlchemyTokenRevocationList(TokenRevocationList):
+    """Refresh-token revocation persistence backed by PostgreSQL.
+
+    Deliberately not a repository on :class:`~factoryai.domain.ports.repositories.
+    UnitOfWork`: revoking a token is an independent, self-contained write with nothing to
+    stay atomic with (unlike, say, a prediction and its audit event) — it opens and commits
+    its own short-lived session per call rather than requiring every caller to first open a
+    unit of work just to reach it.
+    """
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        """Initialise with the session factory every call opens a transaction from."""
+        self._session_factory = session_factory
+
+    async def revoke(self, jti: str, *, expires_at: datetime) -> None:
+        """Blacklist a refresh token identifier."""
+        async with self._session_factory() as session:
+            await session.merge(
+                RevokedTokenRow(jti=jti, revoked_at=datetime.now(UTC), expires_at=expires_at)
+            )
+            await session.commit()
+
+    async def is_revoked(self, jti: str) -> bool:
+        """Return whether a refresh token identifier has been revoked."""
+        async with self._session_factory() as session:
+            row = await session.get(RevokedTokenRow, jti)
+            return row is not None
 
 
 __all__: Sequence[str] = (
@@ -605,5 +680,6 @@ __all__: Sequence[str] = (
     "SqlAlchemyImageRepository",
     "SqlAlchemyModelRepository",
     "SqlAlchemyPredictionRepository",
+    "SqlAlchemyTokenRevocationList",
     "SqlAlchemyUserRepository",
 )

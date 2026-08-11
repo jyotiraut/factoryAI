@@ -156,6 +156,10 @@ ignore = [
 # Use cases legitimately take many collaborators through constructor injection — that is
 # the point of the pattern, not a signal to reach for a config object (ADR-0001).
 "src/factoryai/application/use_cases/**" = ["PLR0913", "PLR0917"]
+# ModelCache.get/_load thread every fact a detector needs to load through explicitly
+# (registry coordinates, threshold, family/backbone) rather than bundling them into a
+# config object the caller would have to assemble first (ADR-0001's stated trade-off).
+"src/factoryai/application/services/**" = ["PLR0913", "PLR0917"]
 # Mirrors the use case it builds: a test factory taking every collaborator as a keyword
 # argument, so a test overrides only the one it cares about.
 "tests/use_case_factory.py" = ["PLR0913"]
@@ -164,11 +168,15 @@ ignore = [
 # mutable-default footgun B008 exists to catch. The async helper behind a Typer command
 # naturally takes one parameter per CLI option — that is what it is delegating, not a
 # signal to bundle them into a config object.
-"src/factoryai/cli.py" = ["B008", "PLR0913", "PLR0917"]
+"src/factoryai/cli.py" = ["B008", "PLR0913", "PLR0917", "PLC0415"]
 # Heavy ml dependencies (torch, anomalib, mlflow) are imported inside these properties/
 # methods, not at module level, so that a command which never trains a model never needs
 # them importable (Phase 5).
 "src/factoryai/bootstrap/container.py" = ["PLC0415"]
+# FastAPI's Depends()/File()/Form() as an argument default is the documented pattern,
+# not the mutable-default footgun B008 exists to catch (same rationale as cli.py's
+# typer.Option()).
+"src/factoryai/api/**" = ["B008"]
 # Alembic generates the module docstring's first line ("initial schema", "add x column")
 # from the -m message; enforcing terminal punctuation there fights the tool, not a smell.
 "database/migrations/versions/**" = ["D415", "D103", "D100"]

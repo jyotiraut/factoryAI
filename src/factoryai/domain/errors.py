@@ -111,6 +111,16 @@ class EmptyDatasetVersionError(DomainError):
     default_code = "dataset_version.no_trainable_images"
 
 
+class NoProductionModelError(DomainError):
+    """A category has no model currently in the production stage.
+
+    Raised by the inference path when a prediction is requested for a category nothing
+    has ever been promoted for — a configuration gap, not a transient failure.
+    """
+
+    default_code = "inference.no_production_model"
+
+
 class PromotionRejectedError(DomainError):
     """A candidate model failed the automated promotion gate."""
 
@@ -123,3 +133,46 @@ class PromotionRejectedError(DomainError):
             details={**(details or {}), "reasons": reasons},
         )
         self.reasons = reasons
+
+
+class AuthenticationError(DomainError):
+    """Login credentials were missing, unknown, or did not match.
+
+    Deliberately not distinguished by "email unknown" vs "wrong password" — that
+    distinction is what lets an attacker enumerate valid emails, so both collapse to one
+    message and one code.
+    """
+
+    default_code = "auth.invalid_credentials"
+
+
+class InactiveAccountError(DomainError):
+    """The account exists but has been deactivated, so it may not authenticate."""
+
+    default_code = "auth.account_inactive"
+
+
+class TokenError(DomainError):
+    """A bearer token was malformed, expired, or has been revoked."""
+
+    default_code = "auth.invalid_token"
+
+
+class AuthorizationError(DomainError):
+    """An authenticated principal lacks the permission a requested action requires."""
+
+    default_code = "auth.forbidden"
+
+    def __init__(self, permission: str, *, details: dict[str, Any] | None = None) -> None:
+        """Initialise with the permission that was required but not held."""
+        super().__init__(
+            f"permission {permission!r} is required",
+            details={**(details or {}), "permission": permission},
+        )
+        self.permission = permission
+
+
+class EmailAlreadyRegisteredError(DomainError):
+    """A user registration named an email address already on file."""
+
+    default_code = "auth.email_already_registered"

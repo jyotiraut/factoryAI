@@ -18,3 +18,5 @@ Format: [MADR](https://adr.github.io/madr/)-lite. Status is one of `proposed`, `
 | [0007](0007-python-311.md) | Pin Python 3.11 | accepted |
 | [0008](0008-synchronous-compute-ports.md) | Compute-bound ports are synchronous | accepted |
 | [0009](0009-training-pipeline-steps.md) | Training as a fixed sequence of single-responsibility steps | accepted |
+| [0010](0010-inference-service-design.md) | Inference service: cache invalidation, health split, and backpressure | accepted |
+| [0011](0011-jwt-auth-and-rbac.md) | JWT authentication, permission-keyed RBAC, and audit tamper detection | accepted |

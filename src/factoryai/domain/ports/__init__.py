@@ -7,6 +7,14 @@ SQLAlchemy, MLflow or Anomalib, which is what makes each of them replaceable.
 I/O-bound ports are ``async``; compute-bound ports are synchronous (ADR-0008).
 """
 
+from factoryai.domain.ports.auth import (
+    AccessTokenClaims,
+    IssuedTokenPair,
+    PasswordHasher,
+    RefreshTokenClaims,
+    TokenRevocationList,
+    TokenService,
+)
 from factoryai.domain.ports.detection import (
     AnomalyDetector,
     DetectorNotLoadedError,
@@ -42,6 +50,7 @@ from factoryai.domain.ports.tracking import ExperimentTracker, ModelRegistry
 from factoryai.domain.ports.versioning import VersionControl
 
 __all__ = [
+    "AccessTokenClaims",
     "AnomalyDetector",
     "AuditRepository",
     "Clock",
@@ -56,12 +65,17 @@ __all__ = [
     "IdGenerator",
     "ImageCodec",
     "ImageRepository",
+    "IssuedTokenPair",
     "ModelRegistry",
     "ModelRepository",
     "ObjectStore",
+    "PasswordHasher",
     "PredictionRepository",
     "RawPrediction",
+    "RefreshTokenClaims",
     "SystemClock",
+    "TokenRevocationList",
+    "TokenService",
     "TrainedModel",
     "TrainingRequest",
     "UnitOfWork",

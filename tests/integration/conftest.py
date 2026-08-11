@@ -45,6 +45,7 @@ _TABLES = (
     "audit_logs",
     "images",
     "users",
+    "revoked_tokens",
 )
 """Every table this schema owns, in an order TRUNCATE ... CASCADE doesn't need to care
 about — CASCADE handles the foreign keys regardless of listing order."""

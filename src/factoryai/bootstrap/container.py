@@ -16,9 +16,20 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from factoryai.application.services.model_cache import ModelCache
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
 from factoryai.application.use_cases.ingest_image import IngestImage
+from factoryai.application.use_cases.list_production_models import ListProductionModels
+from factoryai.application.use_cases.login import Login
+from factoryai.application.use_cases.logout import Logout
+from factoryai.application.use_cases.predict_image import PredictImage
+from factoryai.application.use_cases.promote_model import PromoteModel, PromotionGate
+from factoryai.application.use_cases.refresh_access_token import RefreshAccessToken
+from factoryai.application.use_cases.register_user import RegisterUser
+from factoryai.application.use_cases.rollback_deployment import RollbackDeployment
+from factoryai.application.use_cases.submit_feedback import SubmitFeedback
 from factoryai.application.use_cases.train_model import TrainModel
+from factoryai.application.use_cases.verify_audit_chain import VerifyAuditChain
 from factoryai.domain.policies.validation import (
     AllowedColorModesRule,
     AllowedFormatRule,
@@ -26,6 +37,7 @@ from factoryai.domain.policies.validation import (
     ResolutionBoundsRule,
     ValidationChain,
 )
+from factoryai.domain.ports.auth import PasswordHasher, TokenRevocationList, TokenService
 from factoryai.domain.ports.detection import AnomalyDetector
 from factoryai.domain.ports.imaging import ImageCodec
 from factoryai.domain.ports.repositories import UnitOfWork
@@ -34,8 +46,11 @@ from factoryai.domain.ports.storage import ObjectStore
 from factoryai.domain.ports.tracking import ExperimentTracker, ModelRegistry
 from factoryai.domain.ports.versioning import VersionControl
 from factoryai.domain.value_objects import Resolution
+from factoryai.infrastructure.auth.argon2_hasher import Argon2PasswordHasher
+from factoryai.infrastructure.auth.jwt_tokens import JwtTokenService
 from factoryai.infrastructure.imaging.pillow_codec import PillowImageCodec
 from factoryai.infrastructure.persistence.engine import create_engine, create_session_factory
+from factoryai.infrastructure.persistence.repositories import SqlAlchemyTokenRevocationList
 from factoryai.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from factoryai.infrastructure.storage.local import LocalObjectStore
 from factoryai.infrastructure.storage.s3_compatible import S3CompatibleObjectStore
@@ -241,6 +256,127 @@ class Container:
             workdir=_REPO_ROOT / "data" / "training",
             mlflow_experiment_name=self.settings.mlflow.experiment_name,
         )
+
+    def promote_model_use_case(self) -> PromoteModel:
+        """Build the ``PromoteModel`` use case, wired to this container's adapters."""
+        promotion = self.settings.promotion
+        return PromoteModel(
+            uow_factory=self.unit_of_work,
+            model_registry=self.model_registry,
+            gate=PromotionGate(
+                min_auroc=promotion.min_auroc,
+                improvement_margin=promotion.improvement_margin,
+                max_recall_regression=promotion.max_recall_regression,
+            ),
+            clock=SystemClock(),
+            id_generator=UuidGenerator(),
+        )
+
+    def rollback_deployment_use_case(self) -> RollbackDeployment:
+        """Build the ``RollbackDeployment`` use case, wired to this container's adapters."""
+        return RollbackDeployment(
+            uow_factory=self.unit_of_work,
+            model_registry=self.model_registry,
+            clock=SystemClock(),
+            id_generator=UuidGenerator(),
+        )
+
+    @cached_property
+    def model_cache(self) -> ModelCache:
+        """The warmed detector cache the inference path shares across requests.
+
+        Cached at the container level (unlike other use cases, built fresh per call) so
+        every request in the process reuses the same loaded detectors instead of
+        re-downloading and reloading a model artifact on every prediction.
+        """
+        return ModelCache(
+            detector_factory=self.detector_factory(),
+            model_registry=self.model_registry,
+            workdir=_REPO_ROOT / "data" / "serving",
+        )
+
+    def predict_image_use_case(self) -> PredictImage:
+        """Build the ``PredictImage`` use case, wired to this container's adapters."""
+        return PredictImage(
+            uow_factory=self.unit_of_work,
+            object_store=self.object_store,
+            image_codec=self.image_codec,
+            model_cache=self.model_cache,
+            clock=SystemClock(),
+            id_generator=UuidGenerator(),
+            raw_bucket=self.settings.storage.bucket_raw,
+            heatmap_bucket=self.settings.storage.bucket_heatmaps,
+        )
+
+    def submit_feedback_use_case(self) -> SubmitFeedback:
+        """Build the ``SubmitFeedback`` use case, wired to this container's adapters."""
+        return SubmitFeedback(
+            uow_factory=self.unit_of_work, clock=SystemClock(), id_generator=UuidGenerator()
+        )
+
+    def list_production_models_use_case(self) -> ListProductionModels:
+        """Build the ``ListProductionModels`` use case, wired to this container's adapters."""
+        return ListProductionModels(uow_factory=self.unit_of_work)
+
+    @cached_property
+    def password_hasher(self) -> PasswordHasher:
+        """The argon2id password hasher (Phase 8, ADR-0011)."""
+        return Argon2PasswordHasher()
+
+    @cached_property
+    def token_service(self) -> TokenService:
+        """The JWT issuance/verification adapter, configured from ``JWT_*`` settings."""
+        auth = self.settings.auth
+        return JwtTokenService(
+            secret_key=auth.secret_key.get_secret_value(),
+            algorithm=auth.algorithm,
+            access_token_minutes=auth.access_token_minutes,
+            refresh_token_days=auth.refresh_token_days,
+        )
+
+    @cached_property
+    def token_revocation_list(self) -> TokenRevocationList:
+        """The refresh-token blacklist, backed by its own short-lived sessions."""
+        return SqlAlchemyTokenRevocationList(self.session_factory)
+
+    def register_user_use_case(self) -> RegisterUser:
+        """Build the ``RegisterUser`` use case, wired to this container's adapters."""
+        return RegisterUser(
+            uow_factory=self.unit_of_work,
+            password_hasher=self.password_hasher,
+            clock=SystemClock(),
+            id_generator=UuidGenerator(),
+        )
+
+    def login_use_case(self) -> Login:
+        """Build the ``Login`` use case, wired to this container's adapters."""
+        return Login(
+            uow_factory=self.unit_of_work,
+            password_hasher=self.password_hasher,
+            token_service=self.token_service,
+            clock=SystemClock(),
+        )
+
+    def refresh_access_token_use_case(self) -> RefreshAccessToken:
+        """Build the ``RefreshAccessToken`` use case, wired to this container's adapters."""
+        return RefreshAccessToken(
+            uow_factory=self.unit_of_work,
+            token_service=self.token_service,
+            revocation_list=self.token_revocation_list,
+        )
+
+    def logout_use_case(self) -> Logout:
+        """Build the ``Logout`` use case, wired to this container's adapters."""
+        return Logout(
+            uow_factory=self.unit_of_work,
+            token_service=self.token_service,
+            revocation_list=self.token_revocation_list,
+            clock=SystemClock(),
+        )
+
+    def verify_audit_chain_use_case(self) -> VerifyAuditChain:
+        """Build the ``VerifyAuditChain`` use case, wired to this container's adapters."""
+        return VerifyAuditChain(uow_factory=self.unit_of_work)
 
     async def dispose(self) -> None:
         """Release the database connection pool.

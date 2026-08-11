@@ -27,11 +27,34 @@ from factoryai.application.use_cases.ingest_image import (
     IngestImageResult,
     IngestOutcome,
 )
+from factoryai.application.use_cases.promote_model import (
+    PromoteModelCommand,
+    PromoteModelResult,
+)
+from factoryai.application.use_cases.register_user import RegisterUserCommand
+from factoryai.application.use_cases.rollback_deployment import (
+    NoPriorProductionVersionError,
+    NothingToRollBackError,
+    RollbackDeploymentCommand,
+    RollbackDeploymentResult,
+)
 from factoryai.application.use_cases.train_model import load_training_config
 from factoryai.bootstrap.container import build_container
 from factoryai.domain.entities import EvaluationMetrics
-from factoryai.domain.errors import DatasetVersionTagExistsError, EmptyDatasetVersionError
-from factoryai.domain.value_objects import Category, ImageLabel
+from factoryai.domain.errors import (
+    DatasetVersionTagExistsError,
+    EmailAlreadyRegisteredError,
+    EmptyDatasetVersionError,
+    EntityNotFoundError,
+    PromotionRejectedError,
+)
+from factoryai.domain.value_objects import (
+    Category,
+    ImageLabel,
+    ModelVersionId,
+    UserRole,
+    parse_uuid,
+)
 from factoryai.shared.asyncio_compat import configure_event_loop_policy
 from factoryai.shared.config import Settings, get_settings
 from factoryai.shared.console import configure_stdio_encoding
@@ -53,6 +76,18 @@ dataset_app = typer.Typer(
     name="dataset", help="Dataset versioning commands (Phase 4).", no_args_is_help=True
 )
 
+model_app = typer.Typer(
+    name="model", help="Model promotion and rollback commands (Phase 6).", no_args_is_help=True
+)
+
+user_app = typer.Typer(
+    name="user", help="Account management commands (Phase 8).", no_args_is_help=True
+)
+
+audit_app = typer.Typer(
+    name="audit", help="Audit chain inspection commands (Phase 8).", no_args_is_help=True
+)
+
 
 @app.callback()
 def main() -> None:
@@ -65,6 +100,9 @@ def main() -> None:
 
 
 app.add_typer(dataset_app, name="dataset")
+app.add_typer(model_app, name="model")
+app.add_typer(user_app, name="user")
+app.add_typer(audit_app, name="audit")
 
 
 @app.command()
@@ -360,6 +398,250 @@ def _echo_metrics(metrics: EvaluationMetrics) -> None:
     if metrics.confusion_matrix is not None:
         tn, fp, fn, tp = metrics.confusion_matrix
         typer.echo(f"  confusion      tn={tn} fp={fp} fn={fn} tp={tp}")
+
+
+@model_app.command("promote")
+def model_promote(
+    category: str = typer.Option(..., "--category", help="MVTec category code, e.g. 'bottle'."),
+    model_version_id: str = typer.Option(
+        ..., "--model-version-id", help="The candidate model version's UUID."
+    ),
+    environment: str = typer.Option(
+        "production", "--environment", help="Target environment for the deployment record."
+    ),
+    reason: str = typer.Option("", "--reason", help="Free-text justification."),
+) -> None:
+    """Promote a candidate model version to production, if it clears the automated gate.
+
+    A rejected candidate is still recorded as a ``Deployment`` (action ``reject``) with the
+    full numeric comparison — nothing about a failed promotion is silently dropped.
+    """
+    settings = get_settings()
+    configure_logging(
+        level=settings.log_level, log_format=settings.log_format, service="factoryai-cli"
+    )
+    exit_code = asyncio.run(
+        _model_promote_async(category, model_version_id, environment, reason, settings)
+    )
+    raise typer.Exit(code=exit_code)
+
+
+async def _model_promote_async(
+    category: str, model_version_id: str, environment: str, reason: str, settings: Settings
+) -> int:
+    """Run the promotion and return the process exit code."""
+    container = build_container(settings)
+    use_case = container.promote_model_use_case()
+    try:
+        result = await use_case.execute(
+            PromoteModelCommand(
+                category=Category.parse(category),
+                candidate_model_version_id=ModelVersionId(parse_uuid(model_version_id)),
+                environment=environment,
+                reason=reason,
+            )
+        )
+    except PromotionRejectedError as exc:
+        typer.echo(f"Promotion rejected: {exc.message}")
+        return 1
+    except EntityNotFoundError as exc:
+        typer.echo(f"Could not promote: {exc.message}")
+        return 1
+    finally:
+        await container.dispose()
+
+    _echo_promotion_result(result)
+    return 0
+
+
+def _echo_promotion_result(result: PromoteModelResult) -> None:
+    """Print the promotion outcome and its comparison report."""
+    typer.echo(f"Promoted {result.model_version_id} to production")
+    if result.previous_model_version_id is not None:
+        typer.echo(f"  replaced      {result.previous_model_version_id}")
+    for key, value in result.comparison_report.items():
+        typer.echo(f"  {key:<24} {value}")
+
+
+@model_app.command("rollback")
+def model_rollback(
+    category: str = typer.Option(..., "--category", help="MVTec category code, e.g. 'bottle'."),
+    to: str | None = typer.Option(
+        None,
+        "--to",
+        help="The model version UUID to restore. Defaults to the most recently displaced one.",
+    ),
+    environment: str = typer.Option(
+        "production", "--environment", help="Target environment for the deployment record."
+    ),
+    reason: str = typer.Option("", "--reason", help="Free-text justification."),
+) -> None:
+    """Restore a prior production version, displacing whatever is serving now.
+
+    No gate runs here — the target already earned production once, when it was first
+    promoted.
+    """
+    settings = get_settings()
+    configure_logging(
+        level=settings.log_level, log_format=settings.log_format, service="factoryai-cli"
+    )
+    exit_code = asyncio.run(_model_rollback_async(category, to, environment, reason, settings))
+    raise typer.Exit(code=exit_code)
+
+
+async def _model_rollback_async(
+    category: str, to: str | None, environment: str, reason: str, settings: Settings
+) -> int:
+    """Run the rollback and return the process exit code."""
+    container = build_container(settings)
+    use_case = container.rollback_deployment_use_case()
+    try:
+        result = await use_case.execute(
+            RollbackDeploymentCommand(
+                category=Category.parse(category),
+                environment=environment,
+                target_model_version_id=ModelVersionId(parse_uuid(to)) if to else None,
+                reason=reason,
+            )
+        )
+    except (NothingToRollBackError, NoPriorProductionVersionError, EntityNotFoundError) as exc:
+        typer.echo(f"Could not roll back: {exc.message}")
+        return 1
+    finally:
+        await container.dispose()
+
+    _echo_rollback_result(result)
+    return 0
+
+
+def _echo_rollback_result(result: RollbackDeploymentResult) -> None:
+    """Print the rollback outcome."""
+    typer.echo(f"Rolled back to {result.model_version_id}")
+    typer.echo(f"  replaced      {result.previous_model_version_id}")
+
+
+@user_app.command("create")
+def user_create(
+    email: str = typer.Option(..., "--email", help="Login identifier."),
+    role: str = typer.Option(
+        ..., "--role", help="One of: viewer, operator, ml_engineer, administrator."
+    ),
+    display_name: str = typer.Option("", "--display-name", help="Optional human-readable name."),
+    password: str | None = typer.Option(
+        None,
+        "--password",
+        help="Plaintext password. Omit to be prompted (recommended: avoids shell history).",
+    ),
+) -> None:
+    """Create a new account, including the very first administrator.
+
+    This is the bootstrap path ``POST /auth/register`` cannot be: that route requires an
+    already-authenticated administrator, so the first one has to come from somewhere else
+    a trusted operator already controls — a local shell on the deployment host.
+    """
+    settings = get_settings()
+    configure_logging(
+        level=settings.log_level, log_format=settings.log_format, service="factoryai-cli"
+    )
+    try:
+        role_vo = UserRole(role)
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in UserRole)
+        typer.echo(f"Invalid --role {role!r}; must be one of: {allowed}")
+        raise typer.Exit(code=2) from exc
+    resolved_password = password or typer.prompt(
+        "Password", hide_input=True, confirmation_prompt=True
+    )
+    exit_code = asyncio.run(
+        _user_create_async(email, role_vo, display_name, resolved_password, settings)
+    )
+    raise typer.Exit(code=exit_code)
+
+
+async def _user_create_async(
+    email: str, role: UserRole, display_name: str, password: str, settings: Settings
+) -> int:
+    """Run account creation and return the process exit code."""
+    container = build_container(settings)
+    use_case = container.register_user_use_case()
+    try:
+        result = await use_case.execute(
+            RegisterUserCommand(
+                email=email, password=password, role=role, display_name=display_name
+            )
+        )
+    except EmailAlreadyRegisteredError as exc:
+        typer.echo(f"Could not create user: {exc.message}")
+        return 1
+    finally:
+        await container.dispose()
+
+    typer.echo(f"Created user {result.user_id} ({email}, role={role.value})")
+    return 0
+
+
+@audit_app.command("verify")
+def audit_verify() -> None:
+    """Walk the entire audit chain and report the first tampered or deleted row, if any.
+
+    Exits non-zero when a broken link is found, so this can run as a scheduled integrity
+    check rather than only ever being read by a human.
+    """
+    settings = get_settings()
+    configure_logging(
+        level=settings.log_level, log_format=settings.log_format, service="factoryai-cli"
+    )
+    exit_code = asyncio.run(_audit_verify_async(settings))
+    raise typer.Exit(code=exit_code)
+
+
+async def _audit_verify_async(settings: Settings) -> int:
+    """Run chain verification and return the process exit code."""
+    container = build_container(settings)
+    use_case = container.verify_audit_chain_use_case()
+    try:
+        result = await use_case.execute()
+    finally:
+        await container.dispose()
+
+    typer.echo(f"Examined {result.total_events} audit record(s)")
+    if result.is_intact:
+        typer.echo("Chain is intact: every link verified.")
+        return 0
+    typer.echo(f"TAMPERING DETECTED: chain breaks at sequence {result.first_broken_sequence}")
+    return 1
+
+
+@app.command()
+def serve(
+    host: str | None = typer.Option(None, "--host", help="Overrides API_HOST."),
+    port: int | None = typer.Option(None, "--port", help="Overrides API_PORT."),
+    reload: bool = typer.Option(False, "--reload", help="Auto-restart on code changes (dev only)."),
+) -> None:
+    """Run the inference service (Phase 7) with uvicorn.
+
+    On Linux this is equivalent to ``uvicorn factoryai.api.main:app``. On Windows it is
+    not a thin wrapper: ``uvicorn.run(...)`` picks ``ProactorEventLoop`` for its
+    single-process main loop by design (``uvicorn.loops.asyncio.asyncio_loop_factory``),
+    which is exactly the loop psycopg's async driver refuses to run under
+    (``shared/asyncio_compat.py``). Driving ``Server.serve()`` directly, inside our own
+    ``asyncio.run()``, is what lets the already-configured
+    ``WindowsSelectorEventLoopPolicy`` actually take effect instead of being silently
+    overridden — plain ``uvicorn factoryai.api.main:app`` on Windows will hit this and
+    fail every database call from ``/health/ready`` onwards.
+    """
+    import asyncio
+
+    import uvicorn
+
+    settings = get_settings()
+    config = uvicorn.Config(
+        "factoryai.api.main:app",
+        host=host or settings.api.host,
+        port=port or settings.api.port,
+        reload=reload,
+    )
+    asyncio.run(uvicorn.Server(config).serve())
 
 
 if __name__ == "__main__":  # pragma: no cover

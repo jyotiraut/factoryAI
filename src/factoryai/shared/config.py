@@ -232,6 +232,9 @@ class ApiSettings(BaseSettings):
     workers: int = Field(default=2, ge=1)
     request_timeout_seconds: int = Field(default=30, ge=1)
     max_batch_size: int = Field(default=64, ge=1)
+    max_request_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
+    max_concurrent_predictions: int = Field(default=4, ge=1)
+    heatmap_url_ttl_seconds: int = Field(default=900, ge=60, le=604_800)
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
 
     @field_validator("cors_origins", mode="before")

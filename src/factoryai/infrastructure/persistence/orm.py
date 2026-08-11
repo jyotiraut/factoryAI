@@ -7,10 +7,12 @@ Deliberate deviations from that document, each a scope decision rather than an o
   code). A table would either duplicate ``configs/categories.yaml`` or need syncing with
   it. Referential safety is kept with a ``CHECK`` constraint against the same 15 codes the
   domain's :data:`~factoryai.domain.value_objects.category.MVTEC_CATEGORIES` recognises.
-- **No ``password_hash`` column on ``users`` yet.** Credential storage is a Phase 8
-  concern; adding the column now would mean writing a placeholder hash from a repository
-  that has no business knowing about hashing. It arrives with the migration that
-  implements authentication.
+- **``password_hash`` is nullable and lives on ``users``, not a separate table.** Phase 8
+  adds the column rather than a 1:1 ``credentials`` table: every user has at most one
+  password hash, so a second table would only add a join with no independent lifecycle to
+  justify it. It stays off the domain :class:`~factoryai.domain.entities.user.User` entity
+  regardless (ADR-0011) — only :class:`~factoryai.domain.ports.repositories.UserRepository`
+  ever reads or writes it.
 - **No ``validation_results`` table yet.** Nothing references it until the Phase 3
   ingestion pipeline exists; speculative schema is schema nobody has tested.
 - **Enum columns are ``TEXT`` + ``CHECK``, not native Postgres ``ENUM`` types.** Native
@@ -83,6 +85,22 @@ class UserRow(Base):
     display_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+
+
+class RevokedTokenRow(Base):
+    """A refresh token identifier invalidated before its natural expiry (Phase 8, ADR-0011).
+
+    Only ``jti`` needs to be looked up; ``expires_at`` is kept so a scheduled job can prune
+    rows for tokens that would have expired anyway, though nothing runs that job yet — the
+    table stays small either way, since only logouts (not every login) insert a row.
+    """
+
+    __tablename__ = "revoked_tokens"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ImageRow(Base):
