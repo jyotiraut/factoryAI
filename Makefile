@@ -24,14 +24,14 @@ install-all: ## Install every optional dependency group (slow — pulls torch)
 # --- Quality ---------------------------------------------------------------
 
 lint: ## Ruff lint
-	$(UV) run ruff check src tests
+	$(UV) run ruff check src tests pipelines
 
 format: ## Format with Black and fix import order
-	$(UV) run ruff check --select I --fix src tests
-	$(UV) run black src tests
+	$(UV) run ruff check --select I --fix src tests pipelines
+	$(UV) run black src tests pipelines
 
 format-check: ## Verify formatting without writing
-	$(UV) run black --check src tests
+	$(UV) run black --check src tests pipelines
 
 typecheck: ## Mypy strict
 	$(UV) run mypy

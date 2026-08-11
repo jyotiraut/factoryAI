@@ -74,6 +74,4 @@ class TestJobPersistence:
     async def test_getting_an_unknown_job_raises(self, uow: SqlAlchemyUnitOfWork) -> None:
         async with uow:
             with pytest.raises(EntityNotFoundError):
-                await uow.jobs.get(
-                    JobId(parse_uuid("00000000-0000-0000-0000-000000000000"))
-                )
+                await uow.jobs.get(JobId(parse_uuid("00000000-0000-0000-0000-000000000000")))

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from factoryai.domain.entities import AuditEvent, Deployment, ModelVersion
+from factoryai.domain.entities import AuditEvent, Deployment, EvaluationMetrics, ModelVersion
 from factoryai.domain.entities.audit import GENESIS_HASH
 from factoryai.domain.errors import PromotionRejectedError
 from factoryai.domain.ports.repositories import UnitOfWork
@@ -105,6 +105,18 @@ def advance_to_production(model: ModelVersion) -> ModelVersion:
     return model.transition_to(ModelStage.PRODUCTION)
 
 
+def meets_minimum_bar(metrics: EvaluationMetrics, gate: PromotionGate) -> bool:
+    """Return whether ``metrics`` clears the gate's absolute floor, ignoring any incumbent.
+
+    Pulled out of :func:`_evaluate_gate` so a step that only needs "is this candidate even
+    worth attempting to promote" — the Airflow evaluation step (ADR-0013), run right after
+    training and before a real, auditable :class:`PromoteModel` attempt — can ask exactly
+    that question without duplicating the incumbent-comparison half of the gate, which only
+    :class:`PromoteModel` itself has enough context (the current production model) to judge.
+    """
+    return metrics.image_auroc >= gate.min_auroc
+
+
 def _evaluate_gate(
     candidate: ModelVersion, production: ModelVersion | None, gate: PromotionGate
 ) -> tuple[list[str], dict[str, Any]]:
@@ -113,7 +125,7 @@ def _evaluate_gate(
     candidate_auroc = candidate.metrics.image_auroc
     candidate_recall = candidate.metrics.recall
 
-    if candidate_auroc < gate.min_auroc:
+    if not meets_minimum_bar(candidate.metrics, gate):
         reasons.append(
             f"image_auroc {candidate_auroc:.4f} is below the required minimum {gate.min_auroc:.4f}"
         )

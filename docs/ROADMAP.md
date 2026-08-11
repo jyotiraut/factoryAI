@@ -598,7 +598,7 @@ as a documented follow-up for, not silently skipped.
 
 ---
 
-## Phase 10 — Workflow orchestration with Airflow
+## Phase 10 — Workflow orchestration with Airflow *(complete)*
 
 **Goal:** the platform runs itself on a schedule.
 
@@ -611,6 +611,73 @@ as a documented follow-up for, not silently skipped.
 **Exit criteria**
 - Full pipeline runs end-to-end from an Airflow trigger with zero manual steps.
 - A failing task retries and then alerts rather than silently stalling.
+
+**Delivered.** ADR-0013 records the design in full; summary of what actually shipped:
+
+- `factoryai.pipeline_client`, a new top-level module (sibling to `api`/`cli`/`worker`) that
+  is now the *single* thin client ADR-0005 promised — `factoryai.worker.tasks`'s Celery
+  tasks for retraining and dataset-versioning were refactored to call it too, rather than
+  each scheduler carrying its own copy of the payload-to-command translation. Every
+  function takes a structurally-typed `Container` `Protocol` (not the concrete dataclass)
+  and a plain dict payload, and returns a plain dict result — nothing in it decides
+  anything a use case doesn't already decide.
+- `meets_minimum_bar`, pulled out of `PromoteModel`'s private gate-evaluation function so
+  the new `evaluate` step and `PromoteModel` itself share one implementation of "does this
+  candidate clear the absolute AUROC floor" instead of two — used by `evaluation_dag` and
+  `retraining_dag`'s own evaluate step to stop a pipeline before a real, auditable
+  promotion attempt when the answer is obviously no.
+- Seven DAGs under `pipelines/airflow/dags/`: `data_validation` (a `PythonSensor` waits for
+  staged images under the raw bucket's `incoming/<category>/` prefix, then ingests
+  everything found — the Airflow-facing counterpart to `factoryai ingest`'s filesystem
+  source), `dataset_versioning`, `training`, `evaluation`, `deployment` (each independently
+  triggerable), `monitoring` (wired end-to-end, currently always skips — see the scope-cut
+  note below), and `retraining` — one DAG chaining version → train → evaluate → deploy via
+  native TaskFlow XCom, reusing the exact same `common.run_*` helpers the four standalone
+  DAGs call, so the composite pipeline and the independent steps can never drift apart.
+- A business-outcome vocabulary problem solved once, in `common.py`, rather than per DAG:
+  `PromotionRejectedError` and the drift detector's `NotImplementedError` both become
+  `AirflowSkipException`, not a task failure — Airflow's UI shows "skipped," not a paged
+  alert, for an outcome this platform already treats as a correct answer, not a bug.
+  Failure and SLA-miss callbacks (`alert_on_failure`, `alert_on_sla_miss`) log structured
+  events; wiring a real Slack/PagerDuty webhook is a one-file change against the same two
+  functions, not something this phase had credentials to build against.
+- `airflow.Dockerfile` (mirroring `mlflow.Dockerfile`'s reasoning): the upstream Airflow
+  image gets `factoryai[storage,imaging,versioning,ml]` installed on top of it, pinned to
+  Airflow's own published constraints file — necessary because `LocalExecutor` runs every
+  task in the scheduler's own process, so the training and evaluation DAGs' Anomalib/PyTorch
+  dependency has to live somewhere, and that somewhere cannot be this project's own `.venv`
+  without risking a dependency downgrade against `sqlalchemy>=2.0`.
+  `deploy/compose/docker-compose.yml` gained `airflow-db-init` (creates the `airflow`
+  database in the shared Postgres instance, mirroring `mlflow-db-init`), `airflow-init`
+  (idempotent schema migration plus admin-user creation), `airflow-webserver` and
+  `airflow-scheduler`.
+- One scope cut, documented rather than faked, matching Phase 9's identical decision on
+  `run_drift_report`: `monitoring_dag` runs on a real daily schedule and calls
+  `pipeline_client.generate_drift_report`, which always raises `NotImplementedError` —
+  drift detection is Phase 11 scope. The DAG is wired end-to-end (schedule, SLA, failure
+  callback) and shows as "skipped" every run rather than either being silently absent or
+  failing loudly for something that was never going to succeed.
+- `pipelines/airflow/` is linted by `ruff` (`make lint` now covers it — new, narrowly
+  scoped per-file ignores for the patterns Airflow's own TaskFlow/callback APIs impose) but
+  deliberately **not** type-checked by `mypy`: Airflow is not installed in this project's
+  own `.venv` (see above), and its decorator-heavy DAG-authoring API is not typed well
+  enough to be worth fighting `--strict` over on a directory nothing else in the codebase
+  imports. This is a documented boundary, not an oversight — see ADR-0013's consequences.
+- Verified with 9 new unit tests for `pipeline_client` against fakes (every function:
+  ingest, version, train, evaluate at and below the floor, deploy — first promotion and a
+  rejected candidate, drift report's `NotImplementedError`) plus the existing
+  `PromoteModel`/`TrainModel`/`CreateDatasetVersion` suites, which the refactor left
+  passing unchanged. `ruff`, `black --check`, `mypy --strict` (on the governed `src`/`tests`
+  scope) and the import-linter layer contracts all pass against the full changed surface.
+
+Live end-to-end verification — building `airflow.Dockerfile`, bringing up the scheduler and
+webserver, and triggering `retraining_dag` against the real compose stack to watch
+`data_validation` pick up staged images, `training` produce a real model, and `deployment`
+either promote or durably reject it — is a manual follow-up, for the identical reason
+Phase 9's live Celery/Redis verification was: this environment's Docker daemon was not
+running while this phase's code was written and verified. DAG syntax, Ruff/Black
+compliance, and the compose file's own YAML anchors were all checked directly; parsing
+under a real Airflow scheduler was not.
 
 ---
 

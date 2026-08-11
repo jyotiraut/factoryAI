@@ -64,9 +64,7 @@ class TestSubmitBulkInference:
 
         assert response.status_code == 403
 
-    async def test_missing_idempotency_key_returns_422(
-        self, fake_container: FakeContainer
-    ) -> None:
+    async def test_missing_idempotency_key_returns_422(self, fake_container: FakeContainer) -> None:
         headers = await bearer_header(fake_container)
 
         with TestClient(build_test_app(fake_container)) as client:

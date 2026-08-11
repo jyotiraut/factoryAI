@@ -146,7 +146,18 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D100", "D101", "D102", "D103", "D104", "PLR2004", "ARG001", "ARG002"]
-"pipelines/airflow/**" = ["D100"]
+# DAG files are not type-checked by mypy (Airflow's TaskFlow decorators and `**context`
+# kwargs pattern are not worth fighting `--strict` for — see ADR-0013's consequences); ANN*
+# is relaxed here to match. D103 covers `@task`-decorated inner functions, which read fine
+# without a docstring given the DAG-level docstring above them; PLC0415 covers the
+# sensor's own deferred `import asyncio` (kept local so importing this module for DAG
+# parsing never needs an event loop machinery import at collection time).
+"pipelines/airflow/**" = [
+    "D100", "D103", "ANN001", "ANN201", "ANN202", "ANN204", "PLC0415",
+    # Airflow's own sla_miss_callback/on_failure_callback signatures are fixed by the
+    # library; a given callback often needs only some of the positional parameters.
+    "ARG001",
+]
 # Adapters conforming to a shared port interface legitimately leave some parameters
 # unused in a given implementation (e.g. LocalObjectStore.put's content_type).
 "src/factoryai/infrastructure/storage/**" = ["ARG002"]

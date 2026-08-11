@@ -22,13 +22,8 @@ from typing import Any
 
 from celery import Task
 
-from factoryai.application.use_cases.create_dataset_version import (
-    CreateDatasetVersionCommand,
-    CreateDatasetVersionResult,
-    SplitRatios,
-)
+from factoryai import pipeline_client
 from factoryai.application.use_cases.predict_image import PredictImageCommand
-from factoryai.application.use_cases.train_model import TrainModelCommand, TrainModelResult
 from factoryai.bootstrap.container import Container, build_container
 from factoryai.domain.entities import Job
 from factoryai.domain.ports.services import SystemClock
@@ -216,28 +211,7 @@ def run_retraining(self: Task, job_id: str) -> dict[str, Any]:
 
 
 async def _execute_retraining(container: Container, job: Job) -> dict[str, Any]:
-    payload = job.payload
-    command = TrainModelCommand(
-        dataset_name=payload["dataset_name"],
-        dataset_version_tag=payload["dataset_version_tag"],
-        category=Category.parse(payload["category"]),
-        model_name=payload["model_name"],
-        backbone=payload.get("backbone"),
-        hyperparameters=payload.get("hyperparameters", {}),
-        image_size=tuple(payload.get("image_size", (256, 256))),
-        seed=payload.get("seed", 42),
-        device=payload.get("device", "auto"),
-        note=payload.get("note", ""),
-        started_by=job.submitted_by,
-    )
-    result: TrainModelResult = await container.train_model_use_case().execute(command)
-    return {
-        "experiment_id": str(result.experiment_id),
-        "model_version_id": str(result.model_version_id),
-        "mlflow_run_id": result.mlflow_run_id,
-        "registry_version": result.registry_version,
-        "image_auroc": result.metrics.image_auroc,
-    }
+    return await pipeline_client.train(container, job.payload, started_by=job.submitted_by)
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
@@ -256,27 +230,9 @@ def run_dataset_versioning(self: Task, job_id: str) -> dict[str, Any]:
 
 
 async def _execute_dataset_versioning(container: Container, job: Job) -> dict[str, Any]:
-    payload = job.payload
-    ratios = payload.get("split_ratios", {})
-    command = CreateDatasetVersionCommand(
-        dataset_name=payload["dataset_name"],
-        category=Category.parse(payload["category"]),
-        version_tag=payload["version_tag"],
-        seed=payload.get("seed", 42),
-        split_ratios=SplitRatios(**ratios) if ratios else SplitRatios(),
-        note=payload.get("note", ""),
-        created_by=job.submitted_by,
+    return await pipeline_client.version_dataset(
+        container, job.payload, created_by=job.submitted_by
     )
-    result: CreateDatasetVersionResult = await container.create_dataset_version_use_case().execute(
-        command
-    )
-    return {
-        "dataset_id": str(result.dataset_id),
-        "version_id": str(result.version_id),
-        "version_tag": result.version_tag,
-        "dvc_hash": result.dvc_hash,
-        "image_count": result.image_count,
-    }
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]

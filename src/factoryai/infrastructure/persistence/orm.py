@@ -400,9 +400,7 @@ class JobRow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
     job_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=JobStatus.QUEUED.value
-    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=JobStatus.QUEUED.value)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(postgresql.JSONB, nullable=False)
     submitted_by: Mapped[uuid.UUID | None] = mapped_column(
