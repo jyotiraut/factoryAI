@@ -89,3 +89,60 @@ triggered run already relies on.
   matching the prediction's `image_id`. Fixed by seeding one in each, plus new assertions
   confirming the image ends up relabelled, `VALID`, and flagged — not just leaving the
   original assertions in place.
+
+## Live verification
+
+Live-verifying this phase meant actually triggering `retraining_dag` and watching it run —
+not just confirming `trigger_dag()` queues a run, which Airflow will happily do against a
+pipeline that then fails on its first real task. It did, four times over, each failure real
+and each one previously invisible to every unit test in this codebase because none of them
+exercise `factoryai.pipeline_runner` inside Airflow's actual isolated venv:
+
+1. **`git` was never installed in the Airflow image at all** — `apt-get install` only ever
+   listed `python3-venv`. `DvcGitVersionControl.current_commit()` failed with a bare
+   `PermissionError` the moment `version_dataset` ran for real. Fixed by adding `git` as its
+   own late Dockerfile layer (after the ML dependency install, so adding it doesn't force
+   pip to redo that expensive install every time this layer changes).
+2. **`bootstrap.container._REPO_ROOT` assumed an editable install.** `Path(__file__).
+   resolve().parents[3]` is correct for every place this ran until now — the host's own
+   `.venv`, an editable install inside the actual checkout — but inside `/opt/factoryai-venv`
+   (a regular, non-editable install) it resolved to a `site-packages` path with no `.git`
+   anywhere near it. `FACTORYAI_REPO_ROOT` now overrides it; ADR text above covers why.
+3. **`dvc`, a pip-installed console script, isn't on `PATH` inside the isolated venv** —
+   unlike `git`, an apt package already on the system `PATH`. `subprocess.run(["dvc", ...])`
+   raised `PermissionError` searching `PATH` and hitting an unrelated non-executable `dvc`
+   entry before reaching `/opt/factoryai-venv/bin/dvc`. `DvcGitVersionControl._run` now
+   resolves the executable against `sys.executable`'s own directory first.
+4. **`.dvc/config`'s `endpointurl = http://localhost:9000` is correct on the host** (where
+   the API/worker actually run, ADR-0013) **and wrong inside any container**, where
+   `minio:9000` is the reachable address. The first fix attempted was `dvc remote modify
+   --local` run directly against the bind-mounted host repo — which, because a bind mount is
+   the *same* file, silently rewrote the host's own `.dvc/config.local` to point at an
+   address that doesn't resolve outside Docker's network, breaking `dvc` for the host session
+   that had been driving this whole investigation. Caught immediately (a bare `git
+   rev-parse`/`dvc push` from the host would have failed clearly, but wasn't yet retested
+   when live-verification continued smoothly) and reverted. The real fix: Airflow's own
+   containers get a `factoryai-repo-clone` *named volume*, recloned fresh from a read-only
+   host mount by `airflow-init` on every stack start, and the `dvc remote modify --local`
+   override lands in that clone's own `.dvc/config.local` — never the host's.
+5. **`opencv-python` (an `anomalib` transitive dependency) needs `libGL.so.1`** — absent from
+   every apt install in the image, so the moment `train` actually imported the detector
+   factory, `cv2`'s compiled extension failed to load. Fixed by adding `libgl1`/
+   `libglib2.0-0` alongside `git`.
+
+With all five fixed, `version_dataset` and `train` were confirmed to actually run to
+completion inside Airflow, not merely inside a unit test's fakes: a real `dvc push` against
+MinIO succeeded (`dvc_hash` returned, image_count 284), a real `retraining` DAG run
+progressed past `version_dataset` (Airflow's own task state, not a manual CLI call), and a
+real PatchCore training run completed 11,681 coreset-selection iterations end to end on this
+host's CPU (~31 minutes) with no crash — proof the isolated venv is now capable of the full
+pipeline, independent of how long any one training run happens to take.
+
+Two things this pass did **not** wait on, deliberately: `evaluate`/`deploy` completing for
+this specific triggered run (CPU-only PatchCore training runs on the order of tens of
+minutes per attempt; the previously-broken, Phase-12-relevant surface — orchestration
+actually reaching and completing `version_dataset`/`train` inside Airflow — was what needed
+proving, not Phase 6's already-tested promotion gate), and a real end-to-end drift-severity
+breach (Phase 11's own live verification already exercised `GenerateDriftReport`; this pass
+verified `trigger_dag()` itself genuinely queues and runs a `retraining` DAG run, which is
+the new part).

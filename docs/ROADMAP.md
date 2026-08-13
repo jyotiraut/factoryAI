@@ -863,6 +863,27 @@ service on the host competing with Docker's own port-forwarding for `5432`.
   `ruff`, `mypy --strict`, `lint-imports` and the full unit suite (588 passed) all pass
   against the changed surface.
 
+**Live-verified once Docker became available**, and — matching the pattern every prior
+phase's live verification has established — it did not go cleanly: actually triggering
+`retraining_dag` and watching it run surfaced five real bugs, none visible to any unit test
+since none of them exercise `factoryai.pipeline_runner` inside Airflow's isolated venv. All
+five are recorded in full in ADR-0015's own "Live verification" section: `git` was never
+installed in the Airflow image at all; `bootstrap.container._REPO_ROOT`'s `__file__`-derived
+guess assumed an editable install and landed under `site-packages` instead; `dvc`, a
+pip-installed console script, isn't on `PATH` the way `git` (an apt package) is; the first
+fix attempted for `.dvc/config`'s host-only `localhost:9000` endpoint accidentally rewrote
+the *host's own* `.dvc/config.local` through a bind mount before being caught and replaced
+with a container-only cloned volume; and `opencv-python` (an `anomalib` dependency) needed
+`libgl1`/`libglib2.0-0`, absent from every apt install in the image. With all five fixed,
+`version_dataset` was confirmed to run to real completion (a genuine `dvc push` against
+MinIO, `dvc_hash` returned) both via direct CLI invocation and via a real `retraining` DAG
+run's own task state, and a real PatchCore training run completed 11,681 coreset-selection
+iterations end to end on CPU (~31 minutes) with no crash — proof the isolated venv can now
+run the full pipeline. `evaluate`/`deploy` completing for that specific triggered run was not
+waited on further (CPU-only training runs tens of minutes per attempt; the surface that
+needed proving was orchestration actually reaching and completing `version_dataset`/`train`
+inside Airflow, not Phase 6's already-tested promotion gate).
+
 ---
 
 ## Phase 13 — Frontend dashboard
