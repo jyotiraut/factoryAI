@@ -198,12 +198,36 @@ services:
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin}
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      # `factoryai` inside /opt/factoryai-venv is a regular (non-editable) install, so
+      # bootstrap/container.py's own `__file__`-derived guess at the repo root lands under
+      # site-packages, nowhere near a Git checkout — found live, Phase 12. This points it at
+      # the actual repo, mounted read-write below so `dvc`/`git` can commit and push to it.
+      FACTORYAI_REPO_ROOT: /opt/factoryai-repo
+    volumes:
+      - ../..:/opt/factoryai-repo-src:ro
+      - factoryai-repo-clone:/opt/factoryai-repo
+    # `/opt/factoryai-repo` is recloned fresh from the read-only host mount on every start
+    # (see the `factoryai-repo-clone` volume's own comment for why it can't just be the
+    # host repo directly), then given a `dvc` remote override pointing at this network's
+    # `minio:9000` instead of `.dvc/config`'s host-correct `localhost:9000` — `dvc remote
+    # modify --local` writes that into the *clone's* `.dvc/config.local`, never the host's.
+    # Runs as root: a freshly created named volume's mount point is root-owned (0755), which
+    # the `airflow` user cannot write into at all — the final `chown` hands it back so the
+    # scheduler/webserver, both running as `airflow`, can still read and write it.
+    user: root
     entrypoint: >
       /bin/bash -c "
       airflow db migrate &&
       (airflow users list | grep -q ${AIRFLOW_ADMIN_USER:-admin} ||
       airflow users create --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-change-me-locally}
-      --firstname Admin --lastname Admin --role Admin --email admin@factoryai.local)
+      --firstname Admin --lastname Admin --role Admin --email admin@factoryai.local) &&
+      rm -rf /opt/factoryai-repo/* /opt/factoryai-repo/.[!.]* /opt/factoryai-repo/..?* 2>/dev/null;
+      git clone /opt/factoryai-repo-src /opt/factoryai-repo &&
+      cd /opt/factoryai-repo &&
+      /opt/factoryai-venv/bin/dvc remote modify --local minio endpointurl http://minio:9000 &&
+      /opt/factoryai-venv/bin/dvc remote modify --local minio access_key_id ${STORAGE_ACCESS_KEY:-minioadmin} &&
+      /opt/factoryai-venv/bin/dvc remote modify --local minio secret_access_key ${STORAGE_SECRET_KEY:-minioadmin} &&
+      chown -R airflow:root /opt/factoryai-repo
       "
     depends_on:
       airflow-db-init:
@@ -218,6 +242,7 @@ services:
     environment: *airflow-env
     volumes:
       - ../../pipelines/airflow/dags:/opt/airflow/dags
+      - factoryai-repo-clone:/opt/factoryai-repo
     ports:
       - "${AIRFLOW_HOST_PORT:-8081}:8080"
     depends_on:
@@ -238,6 +263,7 @@ services:
     environment: *airflow-env
     volumes:
       - ../../pipelines/airflow/dags:/opt/airflow/dags
+      - factoryai-repo-clone:/opt/factoryai-repo
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -292,3 +318,11 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
+  # A container-only clone of the repo, not a bind mount of it — `git`/`dvc` need a real
+  # checkout to operate on, but writing their own machine-local config (`.dvc/config.local`,
+  # `airflow-init`'s entrypoint below) into a bind-mounted `../..` would land on the host's
+  # actual working copy, silently overwriting settings the host itself needs (found live,
+  # Phase 12: doing exactly that once pointed the host's own `dvc` at `minio:9000`, an
+  # address that only resolves inside this network). `airflow-init` reclones it fresh from
+  # a separate read-only mount on every stack start.
+  factoryai-repo-clone:

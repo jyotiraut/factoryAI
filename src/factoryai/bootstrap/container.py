@@ -63,9 +63,20 @@ from factoryai.infrastructure.versioning.dvc_git import DvcGitVersionControl
 from factoryai.shared.config import Settings
 from factoryai.shared.errors import ConfigurationError
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-"""The Git/DVC repository root: four levels up from this file
-(``src/factoryai/bootstrap/container.py``)."""
+_REPO_ROOT = (
+    Path(os.environ["FACTORYAI_REPO_ROOT"])
+    if "FACTORYAI_REPO_ROOT" in os.environ
+    else Path(__file__).resolve().parents[3]
+)
+"""The Git/DVC repository root.
+
+Four levels up from this file (``src/factoryai/bootstrap/container.py``) by default — true
+for every editable install running from an actual checkout, which is every place this ran
+until Phase 12's live verification: Airflow's isolated ``/opt/factoryai-venv`` installs
+``factoryai`` as a regular, non-editable package under ``site-packages``, four levels up
+from which is nowhere near a Git repository. ``FACTORYAI_REPO_ROOT`` lets that environment
+point at an actual mounted checkout instead of guessing from ``__file__``.
+"""
 
 
 @dataclass(frozen=True)

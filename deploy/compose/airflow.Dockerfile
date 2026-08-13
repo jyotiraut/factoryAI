@@ -30,3 +30,18 @@ COPY --chown=airflow:root src /tmp/factoryai/src
 # own docstring), so importing `Container` at all needs `argon2-cffi`/`pyjwt` installed.
 RUN /opt/factoryai-venv/bin/pip install --no-cache-dir \
     "/tmp/factoryai[storage,imaging,versioning,ml,auth]"
+
+# `git` is required by `DvcGitVersionControl` (`current_commit`/`track_and_push` shell out
+# to it) — placed in its own layer after the pip install rather than folded into the first
+# `apt-get install` above, so adding it doesn't invalidate that layer's cache and force a
+# full re-download of the ML dependencies. Both `/opt/factoryai-repo-src` (the host's bind
+# mount `airflow-init` clones from) and `/opt/factoryai-repo` (the clone itself, in a
+# container-only volume — see `docker-compose.yml`) are owned by a UID Git never considers
+# "mine", so its dubious-ownership check needs a blanket `safe.directory` exemption or every
+# `git`/`dvc` call in either one fails outright.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
+USER airflow

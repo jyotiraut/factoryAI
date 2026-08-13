@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -88,12 +89,22 @@ class DvcGitVersionControl(VersionControl):
     def _run(self, args: list[str]) -> str:
         """Run a command in the repo root and return its stdout.
 
+        ``dvc`` is a console script pip installs alongside this very interpreter — resolved
+        against ``sys.executable``'s own directory first, since that directory is not
+        guaranteed to be on ``PATH`` (found live, Phase 12: Airflow's isolated
+        ``/opt/factoryai-venv`` never adds its own ``bin/`` to the process ``PATH`` the way
+        an activated venv would, unlike ``git``, which is a system package already on it).
+        Falls back to the bare name unchanged when no sibling exists, so behaviour is
+        identical wherever the executable was already reachable via ``PATH``.
+
         Raises:
             InfrastructureError: If the executable is missing or exits non-zero.
         """
+        sibling = Path(sys.executable).parent / args[0]
+        resolved = [str(sibling) if sibling.is_file() else args[0], *args[1:]]
         try:
             result = subprocess.run(
-                args, cwd=self._repo_root, capture_output=True, text=True, check=True
+                resolved, cwd=self._repo_root, capture_output=True, text=True, check=True
             )
         except FileNotFoundError as exc:
             raise InfrastructureError(
