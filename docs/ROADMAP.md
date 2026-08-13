@@ -620,7 +620,11 @@ as a documented follow-up for, not silently skipped.
   each scheduler carrying its own copy of the payload-to-command translation. Every
   function takes a structurally-typed `Container` `Protocol` (not the concrete dataclass)
   and a plain dict payload, and returns a plain dict result — nothing in it decides
-  anything a use case doesn't already decide.
+  anything a use case doesn't already decide. A second module,
+  `factoryai.pipeline_runner`, is a small CLI bridge added once live verification proved
+  Airflow cannot import `factoryai` in its own process at all (see below) — it is the only
+  thing that actually imports `pipeline_client` on Airflow's side, run inside the isolated
+  venv `airflow.Dockerfile` builds.
 - `meets_minimum_bar`, pulled out of `PromoteModel`'s private gate-evaluation function so
   the new `evaluate` step and `PromoteModel` itself share one implementation of "does this
   candidate clear the absolute AUROC floor" instead of two — used by `evaluation_dag` and
@@ -632,21 +636,25 @@ as a documented follow-up for, not silently skipped.
   source), `dataset_versioning`, `training`, `evaluation`, `deployment` (each independently
   triggerable), `monitoring` (wired end-to-end, currently always skips — see the scope-cut
   note below), and `retraining` — one DAG chaining version → train → evaluate → deploy via
-  native TaskFlow XCom, reusing the exact same `common.run_*` helpers the four standalone
-  DAGs call, so the composite pipeline and the independent steps can never drift apart.
+  native TaskFlow XCom, reusing the exact same `common.run_*` helpers (which shell out to
+  `pipeline_runner`; see below) the four standalone DAGs call, so the composite pipeline
+  and the independent steps can never drift apart.
 - A business-outcome vocabulary problem solved once, in `common.py`, rather than per DAG:
-  `PromotionRejectedError` and the drift detector's `NotImplementedError` both become
+  a rejected promotion and the drift detector's "not implemented yet" both cross the
+  subprocess boundary as a specific exit code (see below) and come back as a local
+  `PromotionRejectedError`/`NotImplementedError` the calling DAG turns into
   `AirflowSkipException`, not a task failure — Airflow's UI shows "skipped," not a paged
   alert, for an outcome this platform already treats as a correct answer, not a bug.
   Failure and SLA-miss callbacks (`alert_on_failure`, `alert_on_sla_miss`) log structured
   events; wiring a real Slack/PagerDuty webhook is a one-file change against the same two
   functions, not something this phase had credentials to build against.
-- `airflow.Dockerfile` (mirroring `mlflow.Dockerfile`'s reasoning): the upstream Airflow
-  image gets `factoryai[storage,imaging,versioning,ml]` installed on top of it, pinned to
-  Airflow's own published constraints file — necessary because `LocalExecutor` runs every
-  task in the scheduler's own process, so the training and evaluation DAGs' Anomalib/PyTorch
-  dependency has to live somewhere, and that somewhere cannot be this project's own `.venv`
-  without risking a dependency downgrade against `sqlalchemy>=2.0`.
+- `airflow.Dockerfile`: `factoryai[storage,imaging,versioning,ml,auth]` installs into
+  `/opt/factoryai-venv`, a second virtualenv independent of Airflow's own Python
+  environment — not "on top of it" as first planned; live-verifying the original plan is
+  what proved it impossible (every Airflow 2.x release pins `SQLAlchemy==1.4.54`, a hard
+  conflict with `sqlalchemy>=2.0` no Airflow version resolves — see ADR-0013). DAG tasks
+  shell out to that interpreter running the new `factoryai.pipeline_runner` CLI bridge
+  rather than importing `factoryai` in Airflow's own process.
   `deploy/compose/docker-compose.yml` gained `airflow-db-init` (creates the `airflow`
   database in the shared Postgres instance, mirroring `mlflow-db-init`), `airflow-init`
   (idempotent schema migration plus admin-user creation), `airflow-webserver` and
@@ -670,14 +678,40 @@ as a documented follow-up for, not silently skipped.
   passing unchanged. `ruff`, `black --check`, `mypy --strict` (on the governed `src`/`tests`
   scope) and the import-linter layer contracts all pass against the full changed surface.
 
-Live end-to-end verification — building `airflow.Dockerfile`, bringing up the scheduler and
-webserver, and triggering `retraining_dag` against the real compose stack to watch
-`data_validation` pick up staged images, `training` produce a real model, and `deployment`
-either promote or durably reject it — is a manual follow-up, for the identical reason
-Phase 9's live Celery/Redis verification was: this environment's Docker daemon was not
-running while this phase's code was written and verified. DAG syntax, Ruff/Black
-compliance, and the compose file's own YAML anchors were all checked directly; parsing
-under a real Airflow scheduler was not.
+**Live-verified once Docker became available**, and it did not go cleanly on the first
+attempt — see ADR-0013's revised "Consequences" for the full account. Building
+`airflow.Dockerfile` as originally written failed outright: every Airflow 2.x release pins
+`SQLAlchemy==1.4.54`, an unconditional conflict with this platform's `sqlalchemy>=2.0`
+requirement that no Airflow version resolves (2.x pins SQLAlchemy 1.4; 3.2+ gains
+SQLAlchemy 2.0 support but pins `numpy>=2`, conflicting with Anomalib's `numpy<2`
+instead). Fixed by giving `factoryai` its own unconstrained virtualenv inside the image
+(`/opt/factoryai-venv`) and adding a CLI bridge, `src/factoryai/pipeline_runner.py`, that
+DAG tasks shell out to instead of importing `factoryai` in Airflow's own process — Airflow
+itself never sees a dependency it didn't already pin. A second real bug surfaced right
+after: the Airflow containers' environment set `POSTGRES_HOST` but not
+`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`, which `factoryai`'s own settings have no
+safe default for (unlike `STORAGE_*`'s local-MinIO fallback) — every database-touching
+command failed with "no password supplied" until the compose file's `airflow-env` block
+was corrected. A Makefile bug was also found and fixed along the way: `docker compose -f
+deploy/compose/docker-compose.yml` never read the repo-root `.env` (Compose derives its
+default project directory from the first `-f` file's own directory, not the caller's
+working directory), so every host-port override any developer had set was silently
+ignored — every `make up`/`down`/`reset`/`logs` target now passes `--env-file .env`
+explicitly.
+
+With those three fixes in place, live verification against the real compose stack (with
+data accumulated across every earlier phase's own live verification) confirmed: all seven
+DAGs parse with zero import errors; `airflow-init` migrated Airflow's own metadata schema
+and created the admin user; `pipeline_runner evaluate` read the real, already-promoted
+`factoryai-bottle` production model (image AUROC 1.0, the same figure Phases 5/6/8
+recorded) and correctly passed it against the gate's floor; `pipeline_runner deploy`
+against a real weak development-stage candidate reproduced `PromoteModel`'s full
+comparison report and exited with the "business rejection" code. **Not verified**:
+`dataset_versioning`/`training`/`retraining`, which additionally need `git`/`dvc` CLI
+binaries and a real version-controlled checkout inside the image — neither exists yet
+(the image only copies `pyproject.toml`/`README.md`/`src` for the pip build), and
+attempting `dataset_versioning` live failed exactly there. Tracked as real follow-up work
+in ADR-0013, not silently absent.
 
 ---
 

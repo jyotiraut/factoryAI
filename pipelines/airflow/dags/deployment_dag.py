@@ -1,11 +1,13 @@
 """``deployment``: attempt promotion — the real, auditable go/no-go call.
 
 A rejection is not a bug (see ``PromoteModel.execute``'s docstring: it is recorded exactly
-as deliberately as a promotion), so this task turns
-:class:`~factoryai.domain.errors.PromotionRejectedError` into a *skip*, not a failure —
-Airflow's status vocabulary has no built-in "the answer was legitimately no" outcome
-closer than that, and marking it a hard failure would page an on-call operator for
-something the gate is working exactly as designed to catch.
+as deliberately as a promotion), so this task turns a rejection into a *skip*, not a
+failure — Airflow's status vocabulary has no built-in "the answer was legitimately no"
+outcome closer than that, and marking it a hard failure would page an on-call operator for
+something the gate is working exactly as designed to catch. ``common.PromotionRejectedError``,
+not the domain exception of the same name: this file runs in Airflow's own Python process,
+which cannot import ``factoryai`` at all (ADR-0013's "Consequences") — see
+``common.py``'s module docstring.
 """
 
 from __future__ import annotations
@@ -14,9 +16,13 @@ from datetime import UTC, datetime, timedelta
 
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
-from common import DEFAULT_ARGS, alert_on_failure, alert_on_sla_miss, run_deploy
-
-from factoryai.domain.errors import PromotionRejectedError
+from common import (
+    DEFAULT_ARGS,
+    PromotionRejectedError,
+    alert_on_failure,
+    alert_on_sla_miss,
+    run_deploy,
+)
 
 
 @dag(

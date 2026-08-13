@@ -185,9 +185,19 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-factoryai}:${POSTGRES_PASSWORD:-factoryai}@postgres:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-change-me}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      STORAGE_ENDPOINT: http://minio:9000
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Read by `factoryai` itself inside /opt/factoryai-venv (pipeline_runner), not by
+      # Airflow — these are the same POSTGRES_*/STORAGE_*/MLFLOW_* variables the app reads
+      # everywhere else (shared/config.py), just set directly rather than via a mounted
+      # .env: Airflow's own container environment has no host .env file to read from.
       POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-factoryai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-factoryai}
+      POSTGRES_DB: ${POSTGRES_DB:-factoryai}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minioadmin}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     entrypoint: >
       /bin/bash -c "
       airflow db migrate &&

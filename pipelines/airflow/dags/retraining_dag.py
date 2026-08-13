@@ -22,6 +22,7 @@ from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from common import (
     DEFAULT_ARGS,
+    PromotionRejectedError,
     alert_on_failure,
     alert_on_sla_miss,
     run_deploy,
@@ -29,8 +30,6 @@ from common import (
     run_train,
     run_version_dataset,
 )
-
-from factoryai.domain.errors import PromotionRejectedError
 
 
 @dag(

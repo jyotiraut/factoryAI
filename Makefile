@@ -55,17 +55,23 @@ quality: lint format-check typecheck check-layers test ## Everything CI runs
 
 # --- Local stack (Phase 2 onwards) -----------------------------------------
 
+# --env-file is required, not cosmetic: Compose derives its default project directory
+# from the first -f file's own directory (deploy/compose), not the caller's working
+# directory, so host-port overrides in the repo-root .env (README's `cp .env.example .env`
+# step) are silently ignored without it.
+COMPOSE := docker compose --env-file .env -f deploy/compose/docker-compose.yml
+
 up: ## Start the local platform
-	docker compose -f deploy/compose/docker-compose.yml up -d --build
+	$(COMPOSE) up -d --build
 
 down: ## Stop the local platform, keep volumes
-	docker compose -f deploy/compose/docker-compose.yml down
+	$(COMPOSE) down
 
 reset: ## Stop and DESTROY local volumes
-	docker compose -f deploy/compose/docker-compose.yml down -v
+	$(COMPOSE) down -v
 
 logs: ## Tail all service logs
-	docker compose -f deploy/compose/docker-compose.yml logs -f
+	$(COMPOSE) logs -f
 
 migrate: ## Apply database migrations
 	$(UV) run alembic -c database/alembic.ini upgrade head

@@ -77,37 +77,68 @@ credentials, so structured logging is what ships. Every DAG's `default_args` and
 `sla_miss_callback` point at them uniformly, so wiring a real notifier later is a one-file
 change, not a per-DAG one.
 
-**Airflow gets its own image; it is not run from the host the way the API and worker are.**
-Phase 9 chose not to containerise `factoryai serve`/`factoryai worker` because there was no
-application image yet, and building one is Phase 14 scope. Airflow is different: it is a
-third-party application with no `factoryai`-shipped host entry point, and `LocalExecutor`
-(the executor `.env.example` already named in Phase 0) runs every task in the scheduler's
-own process — so whatever container runs the scheduler must have `factoryai[storage,
-imaging,versioning,ml]` installed inside it regardless of whether the wider app is
-containerised yet. `airflow.Dockerfile` does exactly that, pinned to Airflow's own
-published constraints file for the chosen version/Python combination, the same reasoning
-`mlflow.Dockerfile` already established for keeping a third-party image's dependency set
-under this project's control rather than whatever the upstream image happened to ship.
+**Airflow gets its own image; `factoryai` gets a second, independent virtualenv inside it —
+not installed into Airflow's own Python environment.** Phase 9 chose not to containerise
+`factoryai serve`/`factoryai worker` because there was no application image yet, and
+building one is Phase 14 scope. Airflow is different: it is a third-party application with
+no `factoryai`-shipped host entry point, and `LocalExecutor` runs every task in the
+scheduler's own process, so a container is unavoidable regardless of whether the wider app
+is containerised. The first version of this ADR planned to `pip install
+factoryai[storage,imaging,versioning,ml]` directly into that container — live-verifying it
+(building the image for real, once Docker was available) proved that impossible:
+**every Airflow 2.x release pins `SQLAlchemy==1.4.54` in its own published constraints
+file**, a hard conflict with this platform's `sqlalchemy>=2.0` requirement that a
+version bump cannot fix either — Airflow does not gain SQLAlchemy 2.0 support until 3.2+,
+and *that* constraints file pins `numpy>=2`, which conflicts with Anomalib's `numpy<2`
+requirement the same way. No single Airflow version satisfies both constraints
+simultaneously. The fix actually shipped: `airflow.Dockerfile` builds `/opt/factoryai-venv`,
+a completely separate virtualenv with no constraint file at all, free to resolve modern
+SQLAlchemy and NumPy independently of whatever Airflow's own environment pins. DAG tasks
+never import `factoryai`; `pipelines/airflow/dags/common.py` shells out to
+`/opt/factoryai-venv/bin/python -m factoryai.pipeline_runner`, a new CLI bridge
+(`src/factoryai/pipeline_runner.py`) that is the only thing that actually imports
+`factoryai.pipeline_client`. Business outcomes still cross the process boundary
+deliberately: exit code `3` means "business rejection" (`PromotionRejectedError`,
+reconstructed as a lightweight *local* exception in `common.py` — not imported from
+`factoryai.domain.errors`, since this file runs in Airflow's own process, which cannot
+import `factoryai` at all), exit code `4` means "not implemented yet"
+(`NotImplementedError`, Phase 11's drift detector); anything else propagates as a genuine
+`subprocess.CalledProcessError` for Celery-style retries to handle like any other failure.
 
 ## Consequences
 
 - `pipelines/airflow/` is linted by `ruff` (`make lint` now covers it) but is **not**
   type-checked by `mypy` — Airflow's TaskFlow decorators and the `**context` kwargs pattern
   every task callable receives are not well-typed enough to fight `--strict` over, and
-  Airflow is not installed in this project's own `.venv` (installing it there risks
-  resolving to dependency versions older than this platform's own `sqlalchemy>=2.0`
-  requirement — the exact reason it gets its own image instead). `pyproject.toml`'s
+  Airflow is not installed in this project's own `.venv` for the identical dependency-
+  conflict reason it is not installed into its own Docker image. `pyproject.toml`'s
   per-file ruff ignores for this directory are scoped narrowly to the patterns Airflow's
   own API imposes (missing return-type annotations on `@task`-decorated closures, fixed
   callback signatures), not a blanket relaxation.
-- Live verification — building `airflow.Dockerfile`, bringing up the scheduler and
-  webserver, triggering `retraining_dag` end-to-end against the real compose stack, and
-  confirming a worker-side crash mid-task redelivers rather than duplicates work — is a
-  manual follow-up, for the identical reason Phase 9's live Celery verification was: this
-  environment's Docker daemon was not running while this phase's code was written. DAG
-  syntax, Ruff/Black compliance and the compose file's own YAML anchors were all verified
-  directly; parsing under a real Airflow scheduler (`airflow dags list-import-errors`) was
-  not.
+- **Live-verified once Docker became available in this environment**, and it is what
+  surfaced the SQLAlchemy conflict above — this ADR originally called that verification a
+  manual follow-up, written before Docker could actually be exercised, and the plan it
+  described did not survive contact with a real build. What was actually confirmed working
+  against the full compose stack: all seven DAGs parse with zero import errors
+  (`airflow dags list-import-errors`); `airflow-init` migrated Airflow's own metadata
+  schema and created the admin user; `pipeline_runner evaluate` read the real, already-
+  promoted `factoryai-bottle` production model (image AUROC 1.0, exactly the Phase 5/6/8
+  figure) from Postgres inside `/opt/factoryai-venv` and correctly passed it; `pipeline_
+  runner deploy` against a real weak development-stage candidate correctly reproduced
+  `PromoteModel`'s full rejection report and exited `3`. Also found and fixed live, not
+  predicted: the Airflow containers' environment initially set `POSTGRES_HOST` but not
+  `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` — `factoryai`'s own settings have no
+  safe password default (unlike `STORAGE_*`'s local-MinIO fallback), so every DB-touching
+  command failed with "no password supplied" until the compose file's `airflow-env` anchor
+  was corrected to set them explicitly.
+- **Not verified**: `dataset_versioning`/`training`/`retraining` DAGs, which need `git` and
+  `dvc` CLI binaries plus a real `.git`-tracked checkout — neither exists inside
+  `airflow.Dockerfile`'s image, which only copies `pyproject.toml`/`README.md`/`src` for
+  the pip build, not the repository's version-control metadata. Attempting
+  `dataset_versioning` live failed exactly there (`PermissionError: git`), a real,
+  understood gap rather than a silent one: `DvcGitVersionControl` (ADR-0006) is not
+  optional for that use case. Installing `git`/`dvc` and mounting or cloning a real
+  checkout into the image is real follow-up work, tracked here rather than papered over.
 - `monitoring_dag` and the `generate_drift_report` path it (and nothing else) calls run on
   a real daily schedule and will show as "skipped" in the Airflow UI on every run until
   Phase 11 lands a real drift detector — a visible, honest placeholder rather than a DAG

@@ -11,7 +11,13 @@ from datetime import UTC, datetime, timedelta
 
 from airflow.decorators import dag, task
 from airflow.sensors.python import PythonSensor
-from common import DEFAULT_ARGS, alert_on_failure, alert_on_sla_miss, container, run_ingest
+from common import (
+    DEFAULT_ARGS,
+    alert_on_failure,
+    alert_on_sla_miss,
+    check_staged_images,
+    run_ingest,
+)
 
 _CATEGORY = "bottle"
 _PREFIX = f"incoming/{_CATEGORY}/"
@@ -23,15 +29,7 @@ def _staged_images_exist() -> bool:
     The sensor this backs is what makes "no long operation blocks" apply here too: an
     empty prefix reschedules the poke instead of running an ingestion batch over nothing.
     """
-    import asyncio
-
-    async def _check() -> bool:
-        c = container()
-        async for _ in c.object_store.list_keys(c.settings.storage.bucket_raw, prefix=_PREFIX):
-            return True
-        return False
-
-    return asyncio.run(_check())
+    return check_staged_images(prefix=_PREFIX)
 
 
 @dag(
