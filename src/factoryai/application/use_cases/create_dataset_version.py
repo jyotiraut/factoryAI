@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from factoryai.application.use_cases.submit_feedback import _FEEDBACK_REVIEWED_FLAG
 from factoryai.domain.entities import AuditEvent, Dataset, DatasetMember, InspectionImage
 from factoryai.domain.entities.audit import GENESIS_HASH
 from factoryai.domain.entities.dataset import DatasetVersion
@@ -119,28 +120,47 @@ class CreateDatasetVersionResult:
     content_checksum: str
 
 
+def _is_feedback_reviewed(image: InspectionImage) -> bool:
+    """Return whether an operator's feedback established this image's ground truth.
+
+    See ``submit_feedback.py``'s ``_FEEDBACK_REVIEWED_FLAG`` docstring (Phase 12,
+    ADR-0015) — these images always land in the test split below, which is what makes
+    them a *growing* regression suite: every reviewed prediction, once folded back in,
+    the model is re-evaluated against forever after, not just the run it arrived for.
+    """
+    return bool(image.metadata.get(_FEEDBACK_REVIEWED_FLAG))
+
+
 def _assign_splits(
     images: list[InspectionImage], ratios: SplitRatios, *, seed: int
 ) -> list[tuple[InspectionImage, DatasetSplit]]:
     """Deterministically partition images into train/val/test.
 
-    Sorts by ``(uploaded_at, id)`` first so the input to the shuffle is itself stable
-    across calls — a repository could otherwise return the same images in a different
-    order between runs — then shuffles with a seeded RNG. The same seed over the same
-    trainable set always reproduces the same split, which is the property Phase 4's exit
-    criteria require.
+    Operator-reviewed images (``_is_feedback_reviewed``) are pulled out first and placed in
+    the test split unconditionally — the growing regression suite (Phase 12, ADR-0015).
+    Everything else is sorted by ``(uploaded_at, id)`` first so the input to the shuffle is
+    itself stable across calls — a repository could otherwise return the same images in a
+    different order between runs — then shuffled with a seeded RNG and divided by
+    ``ratios``. The same seed over the same trainable set always reproduces the same split,
+    which is the property Phase 4's exit criteria require.
     """
-    ordered = sorted(images, key=lambda image: (image.uploaded_at, str(image.id)))
+    reviewed = [image for image in images if _is_feedback_reviewed(image)]
+    unreviewed = [image for image in images if not _is_feedback_reviewed(image)]
+
+    ordered = sorted(unreviewed, key=lambda image: (image.uploaded_at, str(image.id)))
     random.Random(seed).shuffle(ordered)
 
     total = len(ordered)
     n_train = min(round(total * ratios.train), total)
     n_val = min(round(total * ratios.val), total - n_train)
 
+    reviewed_ordered = sorted(reviewed, key=lambda image: (image.uploaded_at, str(image.id)))
+
     return [
         *((image, DatasetSplit.TRAIN) for image in ordered[:n_train]),
         *((image, DatasetSplit.VAL) for image in ordered[n_train : n_train + n_val]),
         *((image, DatasetSplit.TEST) for image in ordered[n_train + n_val :]),
+        *((image, DatasetSplit.TEST) for image in reviewed_ordered),
     ]
 
 

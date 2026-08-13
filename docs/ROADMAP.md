@@ -813,7 +813,7 @@ service on the host competing with Docker's own port-forwarding for `5432`.
 
 ---
 
-## Phase 12 — Automatic retraining & human feedback loop
+## Phase 12 — Automatic retraining & human feedback loop *(complete)*
 
 **Goal:** the loop closes.
 
@@ -828,6 +828,40 @@ service on the host competing with Docker's own port-forwarding for `5432`.
 - A simulated drift event produces either a deployed better model or a documented rejection,
   with no human intervention.
 - Feedback demonstrably changes the evaluation set of the next training run.
+
+**Delivered.** ADR-0015 records the design in full; summary of what actually shipped:
+
+- `InspectionImage._ALLOWED_TRANSITIONS[PENDING]` now permits a direct move to `VALID` — a
+  deliberate new transition for the operator-feedback path: a production inference image
+  never runs through the automated validation chain (Phase 7's design), so it sits at
+  `PENDING` until a human reviews its prediction, which is a *stronger* qualification signal
+  than the automated chain, not a weaker one.
+- `SubmitFeedback` (`application/use_cases/submit_feedback.py`) now folds the resulting
+  ground truth into the underlying image in the same transaction as the feedback record:
+  `mark_valid()` (suppressed if the image is already terminal), `relabel(ground_truth)`, and
+  a new `feedback_reviewed` metadata flag — no separate "promote reviewed images" step exists
+  or is needed.
+- `CreateDatasetVersion` (`application/use_cases/create_dataset_version.py`) reads that flag:
+  `_assign_splits()` now pulls feedback-reviewed images out of the ratio-based shuffle
+  entirely and places every one of them in `TEST` unconditionally, regardless of the
+  caller's `split_ratios` — a growing regression suite an operator's corrections join
+  permanently, not a bigger training set.
+- `monitoring_dag` (Airflow) gained a second task, `trigger_retraining_if_needed`, reading
+  `check_drift`'s own `should_trigger_retraining`/`severity` result and calling
+  `airflow.api.common.trigger_dag.trigger_dag(dag_id="retraining", conf={...})` when it's
+  true, or raising `AirflowSkipException` when it's not — the same `retraining_dag` Phase 10
+  already built runs unattended from a drift breach instead of only on a manual trigger.
+- Verified against existing and new unit tests: rewrote `test_pending_cannot_jump_to_valid`
+  (its premise was the transition this phase deliberately allows) into
+  `test_pending_can_jump_to_valid_via_operator_feedback`, added `test_archived_is_terminal` to
+  keep terminal-state coverage; fixed three pre-existing tests (two `SubmitFeedback`, one
+  `/feedback` API test) that didn't seed a matching `InspectionImage` before this phase's
+  changes made that lookup required, adding assertions that the image ends up relabelled,
+  `VALID`, and flagged rather than just restoring the original assertions; added two new
+  `CreateDatasetVersion` tests asserting a reviewed image lands in `TEST` even under a
+  train-only ratio, and that the regression suite only grows as more images are reviewed.
+  `ruff`, `mypy --strict`, `lint-imports` and the full unit suite (588 passed) all pass
+  against the changed surface.
 
 ---
 

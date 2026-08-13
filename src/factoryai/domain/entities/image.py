@@ -19,7 +19,9 @@ from factoryai.domain.value_objects import (
 )
 
 _ALLOWED_TRANSITIONS: dict[ProcessingStatus, frozenset[ProcessingStatus]] = {
-    ProcessingStatus.PENDING: frozenset({ProcessingStatus.VALIDATING, ProcessingStatus.REJECTED}),
+    ProcessingStatus.PENDING: frozenset(
+        {ProcessingStatus.VALIDATING, ProcessingStatus.REJECTED, ProcessingStatus.VALID}
+    ),
     ProcessingStatus.VALIDATING: frozenset(
         {ProcessingStatus.VALID, ProcessingStatus.REJECTED, ProcessingStatus.QUARANTINED}
     ),
@@ -33,6 +35,15 @@ _ALLOWED_TRANSITIONS: dict[ProcessingStatus, frozenset[ProcessingStatus]] = {
 Rejected and archived are terminal. Quarantine is reversible: an image pulled out of
 service for review can return to :attr:`~ProcessingStatus.VALID` once an engineer clears
 it, which is how a false-positive duplicate detection gets corrected.
+
+``PENDING -> VALID`` direct (skipping :attr:`~ProcessingStatus.VALIDATING`) is Phase 12's
+addition: a production inference image is ingested with none of :class:`~factoryai.
+application.use_cases.ingest_image.IngestImage`'s automated validation chain run against
+it (Phase 7's own design — an inference request must always be scored, never rejected), so
+it sits at ``PENDING`` indefinitely. An operator reviewing that same image's prediction
+through ``POST /feedback`` is a stronger qualification signal than the automated chain, not
+a weaker one — a human already looked at it — which is what makes going straight to
+``VALID`` correct rather than a shortcut around a check that still needs to happen.
 """
 
 

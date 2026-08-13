@@ -273,6 +273,67 @@ class TestEmptyCategory:
             )
 
 
+class TestFeedbackReviewedRegressionSuite:
+    """Phase 12, ADR-0015: operator-reviewed images always land in TEST."""
+
+    async def test_a_reviewed_image_lands_in_test_even_under_a_train_only_ratio(self) -> None:
+        uow = FakeUnitOfWork()
+        reviewed = an_image(
+            checksum=Checksum(f"{1:064x}"),
+            status=ProcessingStatus.VALID,
+            uploaded_at=NOW,
+        ).with_metadata(feedback_reviewed=True)
+        await _seed_images(uow, [reviewed, *_trainable_images(9)])
+        use_case = make_create_dataset_version_use_case(
+            uow=uow,
+            version_control=FakeVersionControl(),
+            clock=FakeClock(NOW),
+            id_generator=FakeIdGenerator(),
+        )
+
+        result = await use_case.execute(
+            CreateDatasetVersionCommand(
+                dataset_name="bottle",
+                category=_CATEGORY,
+                version_tag="bottle-v1",
+                split_ratios=SplitRatios(train=1.0, val=0.0, test=0.0),
+            )
+        )
+
+        version = await uow.datasets.get_version(result.version_id)
+        splits = {member.image_id: member.split for member in version.members}
+        assert splits[reviewed.id] is DatasetSplit.TEST
+
+    async def test_the_regression_suite_only_grows_as_more_images_are_reviewed(self) -> None:
+        uow = FakeUnitOfWork()
+        reviewed = [
+            an_image(
+                checksum=Checksum(f"{index:064x}"),
+                status=ProcessingStatus.VALID,
+                uploaded_at=NOW,
+            ).with_metadata(feedback_reviewed=True)
+            for index in range(1, 4)
+        ]
+        await _seed_images(uow, [*reviewed, *_trainable_images(10)])
+        use_case = make_create_dataset_version_use_case(
+            uow=uow,
+            version_control=FakeVersionControl(),
+            clock=FakeClock(NOW),
+            id_generator=FakeIdGenerator(),
+        )
+
+        result = await use_case.execute(
+            CreateDatasetVersionCommand(
+                dataset_name="bottle", category=_CATEGORY, version_tag="bottle-v1"
+            )
+        )
+
+        version = await uow.datasets.get_version(result.version_id)
+        splits = {member.image_id: member.split for member in version.members}
+        assert all(splits[image.id] is DatasetSplit.TEST for image in reviewed)
+        assert result.split_counts[DatasetSplit.TEST] >= len(reviewed)
+
+
 class TestSplitRatios:
     def test_ratios_must_sum_to_one(self) -> None:
         with pytest.raises(ValueError, match="sum to 1\\.0"):

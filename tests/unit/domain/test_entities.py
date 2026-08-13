@@ -67,15 +67,23 @@ class TestInspectionImage:
         assert image.status is ProcessingStatus.VALID
         assert image.is_trainable
 
-    def test_pending_cannot_jump_to_valid(self) -> None:
-        """Validation must actually run; skipping it would let unvalidated data in."""
-        with pytest.raises(IllegalStateTransitionError):
-            an_image().mark_valid()
+    def test_pending_can_jump_to_valid_via_operator_feedback(self) -> None:
+        """Phase 12: an operator's review is a stronger signal than the automated chain.
+
+        A served prediction reviewed by an operator may go straight from PENDING to VALID.
+        """
+        image = an_image().mark_valid()
+        assert image.status is ProcessingStatus.VALID
 
     def test_rejected_is_terminal(self) -> None:
         rejected = an_image().transition_to(ProcessingStatus.VALIDATING).mark_rejected()
         with pytest.raises(IllegalStateTransitionError):
             rejected.mark_valid()
+
+    def test_archived_is_terminal(self) -> None:
+        archived = an_image().transition_to(ProcessingStatus.VALIDATING).mark_valid().archive()
+        with pytest.raises(IllegalStateTransitionError):
+            archived.mark_valid()
 
     def test_quarantine_is_reversible(self) -> None:
         image = an_image().transition_to(ProcessingStatus.VALIDATING).mark_valid()

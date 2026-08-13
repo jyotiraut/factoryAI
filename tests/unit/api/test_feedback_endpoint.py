@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.builders import a_prediction
+from tests.builders import a_prediction, an_image
 from tests.unit.api.conftest import FakeContainer, bearer_header, build_test_app
 
 from factoryai.domain.value_objects import UserRole
@@ -18,6 +18,7 @@ class TestSubmitFeedback:
     async def test_a_correction_is_accepted(self, fake_container: FakeContainer) -> None:
         prediction = a_prediction()
         await fake_container.uow.predictions.add(prediction)
+        await fake_container.uow.images.add(an_image(id=prediction.image_id))
         headers = await bearer_header(fake_container)
 
         with TestClient(build_test_app(fake_container)) as client:
