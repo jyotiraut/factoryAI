@@ -360,6 +360,13 @@ class FakeDatasetRepository(DatasetRepository):
         matches = [v for v in self._versions.values() if v.dataset_id == dataset_id]
         return sorted(matches, key=lambda v: v.created_at, reverse=True)
 
+    async def list_all_versions(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[DatasetVersion], int]:
+        """Return dataset versions across every dataset, newest first, with a total count."""
+        ordered = sorted(self._versions.values(), key=lambda v: v.created_at, reverse=True)
+        return ordered[offset : offset + limit], len(ordered)
+
 
 class FakeExperimentRepository(ExperimentRepository):
     """An in-memory experiment repository."""
@@ -396,6 +403,16 @@ class FakeExperimentRepository(ExperimentRepository):
     async def list_for_dataset_version(self, version_id: DatasetVersionId) -> list[Experiment]:
         """Return every run trained on a given dataset version."""
         return [e for e in self._by_id.values() if e.dataset_version_id == version_id]
+
+    async def list_recent(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Experiment], int]:
+        """Return training runs across every dataset version, newest first.
+
+        Includes a total count.
+        """
+        ordered = sorted(self._by_id.values(), key=lambda e: e.started_at, reverse=True)
+        return ordered[offset : offset + limit], len(ordered)
 
 
 class FakeModelRepository(ModelRepository):
@@ -529,6 +546,37 @@ class FakePredictionRepository(PredictionRepository):
             if feedback.is_correction and feedback.created_at >= since
         ]
 
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Prediction], int]:
+        """Return served predictions, newest first, with a total count.
+
+        Optionally narrowed to one model version.
+        """
+        matches = [
+            p
+            for p in self._by_id.values()
+            if model_version_id is None or p.model_version_id == model_version_id
+        ]
+        ordered = sorted(matches, key=lambda p: p.predicted_at, reverse=True)
+        return ordered[offset : offset + limit], len(ordered)
+
+    async def list_needing_feedback(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Prediction], int]:
+        """Return predictions with no feedback recorded yet, newest first.
+
+        Includes a total count.
+        """
+        reviewed = {feedback.prediction_id for feedback in self._feedback}
+        matches = [p for p in self._by_id.values() if p.id not in reviewed]
+        ordered = sorted(matches, key=lambda p: p.predicted_at, reverse=True)
+        return ordered[offset : offset + limit], len(ordered)
+
 
 class FakeDriftReportRepository(DriftReportRepository):
     """An in-memory drift report repository."""
@@ -549,6 +597,25 @@ class FakeDriftReportRepository(DriftReportRepository):
             reverse=True,
         )
         return matches[0] if matches else None
+
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[DriftReport], int]:
+        """Return drift reports, newest first, with a total count.
+
+        Optionally narrowed to one model version.
+        """
+        matches = [
+            r
+            for r in self._reports
+            if model_version_id is None or r.model_version_id == model_version_id
+        ]
+        ordered = sorted(matches, key=lambda r: r.created_at, reverse=True)
+        return ordered[offset : offset + limit], len(ordered)
 
 
 class FakeAuditRepository(AuditRepository):

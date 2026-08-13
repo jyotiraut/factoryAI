@@ -34,6 +34,12 @@ class Permission(StrEnum):
     MANAGE_USERS = "manage_users"
     VERIFY_AUDIT_CHAIN = "verify_audit_chain"
     VIEW_JOBS = "view_jobs"
+    VIEW_PREDICTIONS = "view_predictions"
+    VIEW_DRIFT = "view_drift"
+    VIEW_DATASETS = "view_datasets"
+    VIEW_TRAINING_RUNS = "view_training_runs"
+    VIEW_DEPLOYMENTS = "view_deployments"
+    VIEW_SYSTEM_HEALTH = "view_system_health"
 
 
 _MINIMUM_ROLE: dict[Permission, UserRole] = {
@@ -47,6 +53,12 @@ _MINIMUM_ROLE: dict[Permission, UserRole] = {
     Permission.MANAGE_USERS: UserRole.ADMINISTRATOR,
     Permission.VERIFY_AUDIT_CHAIN: UserRole.ADMINISTRATOR,
     Permission.VIEW_JOBS: UserRole.VIEWER,
+    Permission.VIEW_PREDICTIONS: UserRole.VIEWER,
+    Permission.VIEW_DRIFT: UserRole.VIEWER,
+    Permission.VIEW_DATASETS: UserRole.VIEWER,
+    Permission.VIEW_TRAINING_RUNS: UserRole.VIEWER,
+    Permission.VIEW_DEPLOYMENTS: UserRole.VIEWER,
+    Permission.VIEW_SYSTEM_HEALTH: UserRole.VIEWER,
 }
 """Every permission's minimum satisfying role. Exhaustive by construction — a
 :class:`Permission` member missing here is a bug, caught immediately by

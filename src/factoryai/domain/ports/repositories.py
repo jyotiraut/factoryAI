@@ -134,6 +134,16 @@ class DatasetRepository(ABC):
     async def list_versions(self, dataset_id: DatasetId) -> list[DatasetVersion]:
         """Return every version of a dataset, newest first."""
 
+    @abstractmethod
+    async def list_all_versions(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[DatasetVersion], int]:
+        """Return dataset versions across every dataset, newest first, with a total count.
+
+        For the dataset-versions dashboard view (Phase 13): the caller does not yet know
+        which dataset it wants, unlike :meth:`list_versions`.
+        """
+
 
 class ExperimentRepository(ABC):
     """Persistence for training runs.
@@ -161,6 +171,15 @@ class ExperimentRepository(ABC):
     @abstractmethod
     async def list_for_dataset_version(self, version_id: DatasetVersionId) -> list[Experiment]:
         """Return every run trained on a given dataset version."""
+
+    @abstractmethod
+    async def list_recent(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Experiment], int]:
+        """Return training runs across every dataset version, newest first.
+
+        Includes a total count, for the training-runs dashboard view (Phase 13).
+        """
 
 
 class ModelRepository(ABC):
@@ -250,6 +269,29 @@ class PredictionRepository(ABC):
     async def list_corrections(self, category: Category, *, since: datetime) -> list[Feedback]:
         """Return feedback that overturned a prediction, for the next training round."""
 
+    @abstractmethod
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Prediction], int]:
+        """Return served predictions, newest first, with a total count.
+
+        Optionally narrowed to one model version. For the prediction-history dashboard
+        view (Phase 13).
+        """
+
+    @abstractmethod
+    async def list_needing_feedback(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Prediction], int]:
+        """Return predictions with no feedback recorded yet, newest first.
+
+        Includes a total count, for the feedback-queue dashboard view (Phase 13).
+        """
+
 
 class DriftReportRepository(ABC):
     """Persistence for drift analysis results."""
@@ -261,6 +303,20 @@ class DriftReportRepository(ABC):
     @abstractmethod
     async def latest(self, model_version_id: ModelVersionId) -> DriftReport | None:
         """Return the most recent report for a model, if any exists."""
+
+    @abstractmethod
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[DriftReport], int]:
+        """Return drift reports, newest first, with a total count.
+
+        Optionally narrowed to one model version. For the drift-status dashboard view
+        (Phase 13).
+        """
 
 
 class AuditRepository(ABC):

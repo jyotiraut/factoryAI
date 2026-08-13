@@ -290,6 +290,20 @@ class SqlAlchemyDatasetRepository(DatasetRepository):
         )
         return [mappers.dataset_version_to_entity(row) for row in rows]
 
+    async def list_all_versions(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[DatasetVersion], int]:
+        """Return dataset versions across every dataset, newest first, with a total count."""
+        total = await self._session.scalar(select(func.count()).select_from(DatasetVersionRow))
+        rows = await self._session.scalars(
+            select(DatasetVersionRow)
+            .order_by(DatasetVersionRow.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .options(selectinload(DatasetVersionRow.members))
+        )
+        return [mappers.dataset_version_to_entity(row) for row in rows], total or 0
+
 
 class SqlAlchemyExperimentRepository(ExperimentRepository):
     """Training run persistence backed by PostgreSQL."""
@@ -324,6 +338,22 @@ class SqlAlchemyExperimentRepository(ExperimentRepository):
             select(ExperimentRow).where(ExperimentRow.dataset_version_id == version_id)
         )
         return [mappers.experiment_to_entity(row) for row in rows]
+
+    async def list_recent(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Experiment], int]:
+        """Return training runs across every dataset version, newest first.
+
+        Includes a total count.
+        """
+        total = await self._session.scalar(select(func.count()).select_from(ExperimentRow))
+        rows = await self._session.scalars(
+            select(ExperimentRow)
+            .order_by(ExperimentRow.started_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [mappers.experiment_to_entity(row) for row in rows], total or 0
 
     async def _get_row(self, experiment_id: ExperimentId) -> ExperimentRow:
         row = await self._session.get(ExperimentRow, experiment_id)
@@ -495,6 +525,56 @@ class SqlAlchemyPredictionRepository(PredictionRepository):
         )
         return [mappers.feedback_to_entity(row) for row in rows]
 
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Prediction], int]:
+        """Return served predictions, newest first, with a total count.
+
+        Optionally narrowed to one model version.
+        """
+        conditions = (
+            [PredictionRow.model_version_id == model_version_id]
+            if model_version_id is not None
+            else []
+        )
+        total = await self._session.scalar(
+            select(func.count()).select_from(PredictionRow).where(*conditions)
+        )
+        rows = await self._session.scalars(
+            select(PredictionRow)
+            .where(*conditions)
+            .order_by(PredictionRow.predicted_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [mappers.prediction_to_entity(row) for row in rows], total or 0
+
+    async def list_needing_feedback(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[Prediction], int]:
+        """Return predictions with no feedback recorded yet, newest first.
+
+        Includes a total count.
+        """
+        has_feedback = select(FeedbackRow.prediction_id).where(
+            FeedbackRow.prediction_id == PredictionRow.id
+        )
+        total = await self._session.scalar(
+            select(func.count()).select_from(PredictionRow).where(~has_feedback.exists())
+        )
+        rows = await self._session.scalars(
+            select(PredictionRow)
+            .where(~has_feedback.exists())
+            .order_by(PredictionRow.predicted_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [mappers.prediction_to_entity(row) for row in rows], total or 0
+
 
 class SqlAlchemyDriftReportRepository(DriftReportRepository):
     """Drift analysis persistence backed by PostgreSQL."""
@@ -516,6 +596,34 @@ class SqlAlchemyDriftReportRepository(DriftReportRepository):
             .limit(1)
         )
         return mappers.drift_report_to_entity(row) if row else None
+
+    async def list_recent(
+        self,
+        *,
+        model_version_id: ModelVersionId | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[DriftReport], int]:
+        """Return drift reports, newest first, with a total count.
+
+        Optionally narrowed to one model version.
+        """
+        conditions = (
+            [DriftReportRow.model_version_id == model_version_id]
+            if model_version_id is not None
+            else []
+        )
+        total = await self._session.scalar(
+            select(func.count()).select_from(DriftReportRow).where(*conditions)
+        )
+        rows = await self._session.scalars(
+            select(DriftReportRow)
+            .where(*conditions)
+            .order_by(DriftReportRow.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [mappers.drift_report_to_entity(row) for row in rows], total or 0
 
 
 class SqlAlchemyAuditRepository(AuditRepository):
