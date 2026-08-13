@@ -7,9 +7,20 @@ breaking change this module exists to make loud instead of silent.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
+
+_T = TypeVar("_T")
+
+
+class Page(BaseModel, Generic[_T]):
+    """One page of a larger, ordered result set — the dashboard's pagination envelope."""
+
+    items: list[_T]
+    total: int
+    limit: int
+    offset: int
 
 
 class PredictionResponse(BaseModel):
@@ -214,3 +225,116 @@ class JobResponse(BaseModel):
     progress_total: int
     result: dict[str, object] | None = None
     error: str | None = None
+
+
+class PredictionHistoryResponse(BaseModel):
+    """One served prediction, for the prediction-history and feedback-queue dashboard views."""
+
+    prediction_id: str
+    image_id: str
+    model_version_id: str
+    dataset_version_id: str
+    anomaly_score: float
+    threshold: float
+    is_anomalous: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    inference_time_ms: float
+    predicted_at: str
+    correlation_id: str | None = None
+
+
+class DriftSignalResponse(BaseModel):
+    """One measured drift statistic within a report."""
+
+    name: str
+    statistic: float
+    threshold: float
+    method: str
+    breached: bool
+
+
+class DriftReportResponse(BaseModel):
+    """One drift analysis result, for the drift-status dashboard view."""
+
+    report_id: str
+    model_version_id: str
+    reference_dataset_version_id: str
+    window_start: str
+    window_end: str
+    sample_count: int
+    severity: Literal["none", "low", "medium", "high"]
+    should_trigger_retraining: bool
+    signals: list[DriftSignalResponse]
+    created_at: str
+
+
+class DatasetVersionResponse(BaseModel):
+    """One dataset version, for the dataset-versions dashboard view."""
+
+    version_id: str
+    dataset_id: str
+    version_tag: str
+    dvc_hash: str
+    git_commit: str
+    image_count: int
+    note: str
+    created_at: str
+
+
+class TrainingRunResponse(BaseModel):
+    """One training run, for the training-runs dashboard view."""
+
+    experiment_id: str
+    mlflow_run_id: str
+    dataset_version_id: str
+    model_family: str
+    backbone: str
+    status: Literal["running", "completed", "failed"]
+    started_at: str
+    finished_at: str | None = None
+    metrics: dict[str, float | int | list[int] | None] | None = None
+    failure_reason: str | None = None
+
+
+class ModelVersionResponse(BaseModel):
+    """One registered model version, for the model-versions dashboard view."""
+
+    model_version_id: str
+    experiment_id: str
+    category: str
+    registry_name: str
+    registry_version: int
+    stage: Literal["development", "staging", "production", "archived"]
+    threshold: float
+    created_at: str
+
+
+class HistoricalDeploymentResponse(BaseModel):
+    """One deployment or rejection record, for the deployment-history dashboard view."""
+
+    deployment_id: str
+    model_version_id: str
+    action: Literal["promote", "rollback", "reject"]
+    environment: str
+    deployed_at: str
+    previous_model_version_id: str | None = None
+    reason: str = ""
+
+
+class DefectTrendPointResponse(BaseModel):
+    """One day's defect rate, for the defect-trends dashboard view."""
+
+    day: str
+    total: int
+    defective: int
+    rate: float = Field(ge=0.0, le=1.0)
+
+
+class SystemHealthResponse(BaseModel):
+    """A live snapshot of host and queue health, for the system-health dashboard view."""
+
+    cpu_percent: float
+    memory_percent: float
+    disk_percent: float
+    jobs_by_status: dict[str, int]
+    model_cache_hit_ratio: float

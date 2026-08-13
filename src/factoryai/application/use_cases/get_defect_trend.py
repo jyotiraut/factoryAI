@@ -1,13 +1,12 @@
-"""The read-only use case behind ``GET /analytics/defect-trend``: daily defect rate for the
-dashboard.
+"""The read-only use case behind ``GET /analytics/defect-trend``.
 
-Reuses :meth:`~factoryai.domain.ports.repositories.PredictionRepository.list_in_window`
-(Phase 11's own reference-window query) rather than a new SQL aggregation — bucketing a
-few thousand predictions by day in Python is cheap enough for a dashboard chart, and this
-phase does not add a new query method just to move that grouping into the database. A
-category with enough daily traffic to make the Python-side bucketing itself the bottleneck
-is real, tracked future work, not a silently accepted risk: see this use case's own
-``docs/adr`` entry.
+Daily defect rate for the dashboard. Reuses :meth:`~factoryai.domain.ports.repositories.
+PredictionRepository.list_in_window` (Phase 11's own reference-window query) rather than a
+new SQL aggregation — bucketing a few thousand predictions by day in Python is cheap enough
+for a dashboard chart, and this phase does not add a new query method just to move that
+grouping into the database. A category with enough daily traffic to make the Python-side
+bucketing itself the bottleneck is real, tracked future work, not a silently accepted risk:
+see this use case's own ``docs/adr`` entry.
 """
 
 from __future__ import annotations

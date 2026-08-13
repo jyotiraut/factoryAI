@@ -19,9 +19,17 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from factoryai.application.services.model_cache import ModelCache
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
 from factoryai.application.use_cases.generate_drift_report import GenerateDriftReport
+from factoryai.application.use_cases.get_defect_trend import GetDefectTrend
 from factoryai.application.use_cases.get_job_status import GetJobStatus
 from factoryai.application.use_cases.ingest_image import IngestImage
+from factoryai.application.use_cases.list_dataset_versions import ListDatasetVersions
+from factoryai.application.use_cases.list_deployments import ListDeployments
+from factoryai.application.use_cases.list_drift_reports import ListDriftReports
+from factoryai.application.use_cases.list_feedback_queue import ListFeedbackQueue
+from factoryai.application.use_cases.list_model_versions import ListModelVersions
+from factoryai.application.use_cases.list_predictions import ListPredictions
 from factoryai.application.use_cases.list_production_models import ListProductionModels
+from factoryai.application.use_cases.list_training_runs import ListTrainingRuns
 from factoryai.application.use_cases.login import Login
 from factoryai.application.use_cases.logout import Logout
 from factoryai.application.use_cases.predict_image import PredictImage
@@ -333,6 +341,38 @@ class Container:
     def list_production_models_use_case(self) -> ListProductionModels:
         """Build the ``ListProductionModels`` use case, wired to this container's adapters."""
         return ListProductionModels(uow_factory=self.unit_of_work)
+
+    def list_predictions_use_case(self) -> ListPredictions:
+        """Build the ``ListPredictions`` use case, wired to this container's adapters."""
+        return ListPredictions(uow_factory=self.unit_of_work)
+
+    def list_feedback_queue_use_case(self) -> ListFeedbackQueue:
+        """Build the ``ListFeedbackQueue`` use case, wired to this container's adapters."""
+        return ListFeedbackQueue(uow_factory=self.unit_of_work)
+
+    def list_drift_reports_use_case(self) -> ListDriftReports:
+        """Build the ``ListDriftReports`` use case, wired to this container's adapters."""
+        return ListDriftReports(uow_factory=self.unit_of_work)
+
+    def list_dataset_versions_use_case(self) -> ListDatasetVersions:
+        """Build the ``ListDatasetVersions`` use case, wired to this container's adapters."""
+        return ListDatasetVersions(uow_factory=self.unit_of_work)
+
+    def list_training_runs_use_case(self) -> ListTrainingRuns:
+        """Build the ``ListTrainingRuns`` use case, wired to this container's adapters."""
+        return ListTrainingRuns(uow_factory=self.unit_of_work)
+
+    def list_model_versions_use_case(self) -> ListModelVersions:
+        """Build the ``ListModelVersions`` use case, wired to this container's adapters."""
+        return ListModelVersions(uow_factory=self.unit_of_work)
+
+    def list_deployments_use_case(self) -> ListDeployments:
+        """Build the ``ListDeployments`` use case, wired to this container's adapters."""
+        return ListDeployments(uow_factory=self.unit_of_work)
+
+    def get_defect_trend_use_case(self) -> GetDefectTrend:
+        """Build the ``GetDefectTrend`` use case, wired to this container's adapters."""
+        return GetDefectTrend(uow_factory=self.unit_of_work, clock=SystemClock())
 
     @cached_property
     def password_hasher(self) -> PasswordHasher:

@@ -6,10 +6,10 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.builders import a_model_version, an_experiment, some_metrics
+from tests.builders import NOW, a_deployment, a_model_version, an_experiment, some_metrics
 from tests.unit.api.conftest import FakeContainer, bearer_header, build_test_app
 
-from factoryai.domain.value_objects import ExperimentId, ModelStage, UserRole
+from factoryai.domain.value_objects import Category, ExperimentId, ModelStage, UserRole
 
 pytestmark = pytest.mark.unit
 
@@ -46,6 +46,92 @@ class TestListModels:
     async def test_missing_bearer_token_returns_401(self, fake_container: FakeContainer) -> None:
         with TestClient(build_test_app(fake_container)) as client:
             response = client.get("/models")
+
+        assert response.status_code == 401
+
+
+class TestListModelVersions:
+    async def test_a_viewer_gets_every_version_for_the_category_newest_first(
+        self, fake_container: FakeContainer
+    ) -> None:
+        older = a_model_version(category=Category("bottle"), created_at=NOW)
+        newer = a_model_version(category=Category("bottle"), created_at=NOW.replace(hour=13))
+        other_category = a_model_version(category=Category("cable"))
+        await fake_container.uow.models.add(older)
+        await fake_container.uow.models.add(newer)
+        await fake_container.uow.models.add(other_category)
+        headers = await bearer_header(fake_container, UserRole.VIEWER)
+
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get(
+                "/models/versions", params={"category": "bottle"}, headers=headers
+            )
+
+        assert response.status_code == 200
+        ids = [entry["model_version_id"] for entry in response.json()]
+        assert ids == [str(newer.id), str(older.id)]
+
+    async def test_a_category_with_no_versions_returns_an_empty_list(
+        self, fake_container: FakeContainer
+    ) -> None:
+        headers = await bearer_header(fake_container, UserRole.VIEWER)
+
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get(
+                "/models/versions", params={"category": "bottle"}, headers=headers
+            )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_missing_bearer_token_returns_401(self, fake_container: FakeContainer) -> None:
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get("/models/versions", params={"category": "bottle"})
+
+        assert response.status_code == 401
+
+
+class TestListDeployments:
+    async def test_a_viewer_gets_the_deployment_history_newest_first(
+        self, fake_container: FakeContainer
+    ) -> None:
+        model = a_model_version(category=Category("bottle"))
+        await fake_container.uow.models.add(model)
+        older = a_deployment(model_version_id=model.id, environment="production", deployed_at=NOW)
+        newer = a_deployment(
+            model_version_id=model.id,
+            environment="production",
+            deployed_at=NOW.replace(hour=13),
+        )
+        await fake_container.uow.models.add_deployment(older)
+        await fake_container.uow.models.add_deployment(newer)
+        headers = await bearer_header(fake_container, UserRole.VIEWER)
+
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get(
+                "/models/deployments", params={"category": "bottle"}, headers=headers
+            )
+
+        assert response.status_code == 200
+        ids = [entry["deployment_id"] for entry in response.json()]
+        assert ids == [str(newer.id), str(older.id)]
+
+    async def test_a_category_with_no_deployments_returns_an_empty_list(
+        self, fake_container: FakeContainer
+    ) -> None:
+        headers = await bearer_header(fake_container, UserRole.VIEWER)
+
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get(
+                "/models/deployments", params={"category": "bottle"}, headers=headers
+            )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_missing_bearer_token_returns_401(self, fake_container: FakeContainer) -> None:
+        with TestClient(build_test_app(fake_container)) as client:
+            response = client.get("/models/deployments", params={"category": "bottle"})
 
         assert response.status_code == 401
 

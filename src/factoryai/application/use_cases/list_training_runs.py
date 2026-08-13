@@ -1,5 +1,6 @@
-"""The read-only use case behind ``GET /training/runs``: training history for the
-dashboard.
+"""The read-only use case behind ``GET /training/runs``.
+
+Training history for the dashboard.
 """
 
 from __future__ import annotations

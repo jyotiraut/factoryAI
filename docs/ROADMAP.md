@@ -886,7 +886,7 @@ inside Airflow, not Phase 6's already-tested promotion gate).
 
 ---
 
-## Phase 13 — Frontend dashboard
+## Phase 13 — Frontend dashboard *(complete)*
 
 **Goal:** an interface a plant engineer would accept.
 
@@ -900,6 +900,54 @@ inside Airflow, not Phase 6's already-tested promotion gate).
 **Exit criteria**
 - An operator can review a prediction and submit feedback in under three interactions.
 - All dashboard data comes from the public API — no backdoor queries.
+
+**Delivered.** ADR-0016 records the design in full; summary of what actually shipped:
+
+- Before any UI: audited the existing API and found eight of the ten planned views had no
+  supporting endpoint. Added first, matching Clean Architecture's own layering — a new
+  `Page[T]` pagination envelope (`application/pagination.py`), five new deliberately
+  specific repository methods (`PredictionRepository.list_recent`/`list_needing_feedback`,
+  `DriftReportRepository.list_recent`, `DatasetRepository.list_all_versions`,
+  `ExperimentRepository.list_recent`, all implemented in both the real SQLAlchemy
+  repositories and the in-memory fakes), nine new use cases, six new `VIEWER`-level
+  permissions, and one new endpoint per view: `GET /predictions`, `GET /predictions/
+  feedback-queue`, `GET /drift/reports`, `GET /datasets/versions`, `GET /training/runs`,
+  `GET /models/versions`, `GET /models/deployments`, `GET /analytics/defect-trend`, `GET
+  /system/health` — plus `GET /auth/me` so role-aware navigation reads a live database
+  value instead of a JWT claim `get_current_user` (Phase 8) already deliberately treats as
+  untrustworthy for the same reason. 50 new backend tests, zero regressions against the
+  existing 499.
+- `frontend/`: Vite + React 19 + TypeScript, dark industrial theme (`index.css`), React
+  Query for data fetching/caching, `react-router` for navigation, `recharts` for the
+  defect-trend chart. `api/client.ts` is the single fetch layer every view goes through —
+  bearer-token auth, a 401 triggering exactly one coalesced refresh attempt (not one per
+  racing request, which would collide with the backend's single-use refresh-token
+  rotation), forced re-login on a second failure.
+- All ten planned views ship: Live Inspection (the front of the feedback queue, one
+  prediction at a time — see below), Prediction History, Feedback Queue, Defect Trends,
+  Models (summary + per-category version history), Deployments, Dataset Versions, Training
+  Runs, Drift Status, System Health.
+- Feedback submission is two single-click buttons ("Confirm correct" / "Mark incorrect",
+  the latter inferring the corrected label from the existing verdict), not a form —
+  satisfying "under three interactions" with one. `RoleGate` hides the buttons entirely
+  below `operator`, matching (not replacing) the backend's own `SUBMIT_FEEDBACK` permission
+  check.
+- Two deliberate scope cuts, not oversights: live updates are React Query polling
+  (`refetchInterval`, 15s on Live Inspection/System Health) rather than new WebSocket/SSE
+  infrastructure — grepping the whole backend found none to build against, and inventing a
+  push channel unprompted was not this phase's call to make. Image/heatmap rendering in the
+  dashboard is deferred — `Prediction` has no stable, presigned, browser-loadable URL for a
+  historical image yet, only an `image_id`; Live Inspection shows every number a reviewer
+  needs (score, threshold, confidence) to make the correct/incorrect call, not the picture.
+- Verified: `tsc -b`, `vite build` and `oxlint` all pass with zero errors; `app.openapi()`
+  inspected directly to confirm all ten new routes are registered on the running app, not
+  merely present in source; the Vite dev server was started and confirmed to serve the app
+  shell on `:3000`. Two gaps disclosed rather than glossed over (ADR-0016's "Live
+  verification" section has the full account): no browser-automation tool was available
+  this session to click through the running UI, and the host-based backend hit the same
+  Postgres-authentication sandbox artifact ADR-0014 already diagnosed during Phase 11,
+  blocking a login-through-real-Postgres check from the host specifically (container-to-
+  container connections are unaffected).
 
 ---
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from factoryai.api.dependencies import get_container, require_permission
+from factoryai.api.dependencies import get_container, get_current_user, require_permission
 from factoryai.api.schemas import (
     LoginRequest,
     LogoutRequest,
@@ -90,6 +90,19 @@ async def logout(payload: LogoutRequest, container: Container = Depends(get_cont
         await use_case.execute(payload.refresh_token)
     except TokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=exc.message) from exc
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_info(user: User = Depends(get_current_user)) -> UserResponse:
+    """Return the authenticated caller's own identity and role.
+
+    Phase 13's role-aware navigation reads this rather than decoding the access token's
+    own ``role`` claim client-side — the same freshness argument
+    :func:`~factoryai.api.dependencies.get_current_user` already makes for permission
+    checks applies equally to what a nav bar renders: a role change should not wait for
+    the client to notice its cached token is stale.
+    """
+    return UserResponse(user_id=str(user.id), email=user.email, role=user.role.value)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

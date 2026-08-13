@@ -33,11 +33,31 @@ from factoryai.api.middleware import (
     MaxBodySizeMiddleware,
     PrometheusMiddleware,
 )
-from factoryai.api.routers import auth, feedback, health, jobs, models, predict
+from factoryai.api.routers import (
+    analytics,
+    auth,
+    datasets,
+    drift,
+    feedback,
+    health,
+    jobs,
+    models,
+    predict,
+    predictions,
+    training,
+)
 from factoryai.api.routers.metrics import router as metrics_router
 from factoryai.application.services.model_cache import ModelCache
+from factoryai.application.use_cases.get_defect_trend import GetDefectTrend
 from factoryai.application.use_cases.get_job_status import GetJobStatus
+from factoryai.application.use_cases.list_dataset_versions import ListDatasetVersions
+from factoryai.application.use_cases.list_deployments import ListDeployments
+from factoryai.application.use_cases.list_drift_reports import ListDriftReports
+from factoryai.application.use_cases.list_feedback_queue import ListFeedbackQueue
+from factoryai.application.use_cases.list_model_versions import ListModelVersions
+from factoryai.application.use_cases.list_predictions import ListPredictions
 from factoryai.application.use_cases.list_production_models import ListProductionModels
+from factoryai.application.use_cases.list_training_runs import ListTrainingRuns
 from factoryai.application.use_cases.login import Login
 from factoryai.application.use_cases.logout import Logout
 from factoryai.application.use_cases.predict_image import PredictImage
@@ -188,6 +208,38 @@ class FakeContainer:
         """Build a real :class:`ListProductionModels` wired to this container's fake."""
         return ListProductionModels(uow_factory=self.unit_of_work)
 
+    def list_predictions_use_case(self) -> ListPredictions:
+        """Build a real :class:`ListPredictions` wired to this container's fake."""
+        return ListPredictions(uow_factory=self.unit_of_work)
+
+    def list_feedback_queue_use_case(self) -> ListFeedbackQueue:
+        """Build a real :class:`ListFeedbackQueue` wired to this container's fake."""
+        return ListFeedbackQueue(uow_factory=self.unit_of_work)
+
+    def list_drift_reports_use_case(self) -> ListDriftReports:
+        """Build a real :class:`ListDriftReports` wired to this container's fake."""
+        return ListDriftReports(uow_factory=self.unit_of_work)
+
+    def list_dataset_versions_use_case(self) -> ListDatasetVersions:
+        """Build a real :class:`ListDatasetVersions` wired to this container's fake."""
+        return ListDatasetVersions(uow_factory=self.unit_of_work)
+
+    def list_training_runs_use_case(self) -> ListTrainingRuns:
+        """Build a real :class:`ListTrainingRuns` wired to this container's fake."""
+        return ListTrainingRuns(uow_factory=self.unit_of_work)
+
+    def list_model_versions_use_case(self) -> ListModelVersions:
+        """Build a real :class:`ListModelVersions` wired to this container's fake."""
+        return ListModelVersions(uow_factory=self.unit_of_work)
+
+    def list_deployments_use_case(self) -> ListDeployments:
+        """Build a real :class:`ListDeployments` wired to this container's fake."""
+        return ListDeployments(uow_factory=self.unit_of_work)
+
+    def get_defect_trend_use_case(self) -> GetDefectTrend:
+        """Build a real :class:`GetDefectTrend` wired to this container's fake."""
+        return GetDefectTrend(uow_factory=self.unit_of_work, clock=FakeClock(NOW))
+
     def submit_job_use_case(self) -> SubmitJob:
         """Build a real :class:`SubmitJob` wired to this container's fakes."""
         return SubmitJob(
@@ -226,6 +278,11 @@ def build_test_app(container: FakeContainer) -> FastAPI:
     app.include_router(feedback.router)
     app.include_router(jobs.router)
     app.include_router(metrics_router)
+    app.include_router(predictions.router)
+    app.include_router(drift.router)
+    app.include_router(datasets.router)
+    app.include_router(training.router)
+    app.include_router(analytics.router)
     return app
 
 

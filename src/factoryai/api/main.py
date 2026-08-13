@@ -20,7 +20,20 @@ from factoryai.api.middleware import (
     MaxBodySizeMiddleware,
     PrometheusMiddleware,
 )
-from factoryai.api.routers import auth, feedback, health, jobs, models, predict
+from factoryai.api.routers import (
+    analytics,
+    auth,
+    datasets,
+    drift,
+    feedback,
+    health,
+    jobs,
+    models,
+    predict,
+    predictions,
+    system,
+    training,
+)
 from factoryai.api.routers.metrics import router as metrics_router
 from factoryai.bootstrap.container import Container, build_container
 from factoryai.domain.value_objects import Category, ModelStage
@@ -119,6 +132,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(feedback.router)
     app.include_router(jobs.router)
     app.include_router(metrics_router)
+    app.include_router(predictions.router)
+    app.include_router(drift.router)
+    app.include_router(datasets.router)
+    app.include_router(training.router)
+    app.include_router(analytics.router)
+    app.include_router(system.router)
     return app
 
 

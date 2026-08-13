@@ -5,15 +5,18 @@ Phase 8 gives promotion and rollback an HTTP surface; Phase 6 was CLI-only.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from factoryai.api.dependencies import get_container, require_permission
 from factoryai.api.schemas import (
     DeploymentResponse,
+    HistoricalDeploymentResponse,
     ModelSummaryResponse,
+    ModelVersionResponse,
     PromoteModelRequest,
     RollbackModelRequest,
 )
+from factoryai.application.use_cases.list_deployments import ListDeploymentsCommand
 from factoryai.application.use_cases.promote_model import PromoteModelCommand
 from factoryai.application.use_cases.rollback_deployment import (
     NoPriorProductionVersionError,
@@ -21,7 +24,7 @@ from factoryai.application.use_cases.rollback_deployment import (
     RollbackDeploymentCommand,
 )
 from factoryai.bootstrap.container import Container
-from factoryai.domain.entities import User
+from factoryai.domain.entities import Deployment, ModelVersion, User
 from factoryai.domain.errors import EntityNotFoundError, PromotionRejectedError
 from factoryai.domain.policies.permissions import Permission
 from factoryai.domain.value_objects import Category, ModelVersionId, parse_uuid
@@ -61,6 +64,72 @@ async def list_models(container: Container = Depends(get_container)) -> list[Mod
         )
         for summary in summaries
     ]
+
+
+@router.get(
+    "/models/versions",
+    response_model=list[ModelVersionResponse],
+    dependencies=[Depends(require_permission(Permission.VIEW_MODELS))],
+)
+async def list_model_versions(
+    category: str = Query(...), container: Container = Depends(get_container)
+) -> list[ModelVersionResponse]:
+    """Return every registered version for a category, newest first."""
+    use_case = container.list_model_versions_use_case()
+    versions = await use_case.execute(Category.parse(category))
+    return [_model_version_to_response(version) for version in versions]
+
+
+@router.get(
+    "/models/deployments",
+    response_model=list[HistoricalDeploymentResponse],
+    dependencies=[Depends(require_permission(Permission.VIEW_DEPLOYMENTS))],
+)
+async def list_deployments(
+    category: str = Query(...),
+    environment: str = Query(default="production"),
+    limit: int = Query(default=50, ge=1, le=200),
+    container: Container = Depends(get_container),
+) -> list[HistoricalDeploymentResponse]:
+    """Return a category's deployment history for one environment, newest first."""
+    use_case = container.list_deployments_use_case()
+    deployments = await use_case.execute(
+        ListDeploymentsCommand(
+            category=Category.parse(category), environment=environment, limit=limit
+        )
+    )
+    return [_deployment_to_response(deployment) for deployment in deployments]
+
+
+def _model_version_to_response(version: ModelVersion) -> ModelVersionResponse:
+    """Map a domain model version onto its dashboard representation."""
+    return ModelVersionResponse(
+        model_version_id=str(version.id),
+        experiment_id=str(version.experiment_id),
+        category=version.category.code,
+        registry_name=version.registry_name,
+        registry_version=version.registry_version,
+        stage=version.stage.value,
+        threshold=version.threshold,
+        created_at=version.created_at.isoformat(),
+    )
+
+
+def _deployment_to_response(deployment: Deployment) -> HistoricalDeploymentResponse:
+    """Map a domain deployment record onto its dashboard representation."""
+    return HistoricalDeploymentResponse(
+        deployment_id=str(deployment.id),
+        model_version_id=str(deployment.model_version_id),
+        action=deployment.action.value,
+        environment=deployment.environment,
+        deployed_at=deployment.deployed_at.isoformat(),
+        previous_model_version_id=(
+            str(deployment.previous_model_version_id)
+            if deployment.previous_model_version_id
+            else None
+        ),
+        reason=deployment.reason,
+    )
 
 
 @router.post(

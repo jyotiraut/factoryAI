@@ -11,8 +11,16 @@ from collections.abc import Callable
 from pathlib import Path
 
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
+from factoryai.application.use_cases.get_defect_trend import GetDefectTrend
 from factoryai.application.use_cases.ingest_image import IngestImage
+from factoryai.application.use_cases.list_dataset_versions import ListDatasetVersions
+from factoryai.application.use_cases.list_deployments import ListDeployments
+from factoryai.application.use_cases.list_drift_reports import ListDriftReports
+from factoryai.application.use_cases.list_feedback_queue import ListFeedbackQueue
+from factoryai.application.use_cases.list_model_versions import ListModelVersions
+from factoryai.application.use_cases.list_predictions import ListPredictions
 from factoryai.application.use_cases.list_production_models import ListProductionModels
+from factoryai.application.use_cases.list_training_runs import ListTrainingRuns
 from factoryai.application.use_cases.promote_model import PromoteModel, PromotionGate
 from factoryai.application.use_cases.rollback_deployment import RollbackDeployment
 from factoryai.application.use_cases.submit_feedback import SubmitFeedback
@@ -162,3 +170,43 @@ def make_submit_feedback_use_case(
 def make_list_production_models_use_case(*, uow: FakeUnitOfWork) -> ListProductionModels:
     """Build a :class:`ListProductionModels` use case wired to the given fake."""
     return ListProductionModels(uow_factory=lambda: uow)
+
+
+def make_list_predictions_use_case(*, uow: FakeUnitOfWork) -> ListPredictions:
+    """Build a :class:`ListPredictions` use case wired to the given fake."""
+    return ListPredictions(uow_factory=lambda: uow)
+
+
+def make_list_feedback_queue_use_case(*, uow: FakeUnitOfWork) -> ListFeedbackQueue:
+    """Build a :class:`ListFeedbackQueue` use case wired to the given fake."""
+    return ListFeedbackQueue(uow_factory=lambda: uow)
+
+
+def make_list_drift_reports_use_case(*, uow: FakeUnitOfWork) -> ListDriftReports:
+    """Build a :class:`ListDriftReports` use case wired to the given fake."""
+    return ListDriftReports(uow_factory=lambda: uow)
+
+
+def make_list_dataset_versions_use_case(*, uow: FakeUnitOfWork) -> ListDatasetVersions:
+    """Build a :class:`ListDatasetVersions` use case wired to the given fake."""
+    return ListDatasetVersions(uow_factory=lambda: uow)
+
+
+def make_list_training_runs_use_case(*, uow: FakeUnitOfWork) -> ListTrainingRuns:
+    """Build a :class:`ListTrainingRuns` use case wired to the given fake."""
+    return ListTrainingRuns(uow_factory=lambda: uow)
+
+
+def make_list_model_versions_use_case(*, uow: FakeUnitOfWork) -> ListModelVersions:
+    """Build a :class:`ListModelVersions` use case wired to the given fake."""
+    return ListModelVersions(uow_factory=lambda: uow)
+
+
+def make_list_deployments_use_case(*, uow: FakeUnitOfWork) -> ListDeployments:
+    """Build a :class:`ListDeployments` use case wired to the given fake."""
+    return ListDeployments(uow_factory=lambda: uow)
+
+
+def make_get_defect_trend_use_case(*, uow: FakeUnitOfWork, clock: Clock) -> GetDefectTrend:
+    """Build a :class:`GetDefectTrend` use case wired to the given fakes."""
+    return GetDefectTrend(uow_factory=lambda: uow, clock=clock)
