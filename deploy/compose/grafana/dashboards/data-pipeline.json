@@ -1,0 +1,49 @@
+{
+  "title": "FactoryAI - Data Pipeline",
+  "uid": "factoryai-data-pipeline",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Background jobs, by status",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "factoryai_jobs", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Queued jobs (current)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "factoryai_jobs{status=\"queued\"}" }]
+    },
+    {
+      "id": 3,
+      "title": "Running jobs (current)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "factoryai_jobs{status=\"running\"}" }]
+    },
+    {
+      "id": 4,
+      "title": "Predictions ingested per second (proxy for pipeline throughput)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(factoryai_predictions_total[5m])) by (category)",
+          "legendFormat": "{{category}}"
+        }
+      ]
+    }
+  ]
+}

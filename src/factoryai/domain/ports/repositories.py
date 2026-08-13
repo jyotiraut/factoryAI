@@ -382,6 +382,15 @@ class JobRepository(ABC):
         ``running``), not by any use case on the request path.
         """
 
+    @abstractmethod
+    async def count_by_status(self) -> dict[str, int]:
+        """Return job counts grouped by status, zero-filled for every status.
+
+        What ``GET /metrics``'s queue-depth gauges read (Phase 11) — a single grouped
+        count, not ``len(list_by_status(..., limit=...))``, which would silently undercount
+        past the limit.
+        """
+
 
 class UnitOfWork(ABC):
     """Transactional boundary spanning every repository.

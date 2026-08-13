@@ -139,7 +139,6 @@ import `factoryai` at all), exit code `4` means "not implemented yet"
   understood gap rather than a silent one: `DvcGitVersionControl` (ADR-0006) is not
   optional for that use case. Installing `git`/`dvc` and mounting or cloning a real
   checkout into the image is real follow-up work, tracked here rather than papered over.
-- `monitoring_dag` and the `generate_drift_report` path it (and nothing else) calls run on
-  a real daily schedule and will show as "skipped" in the Airflow UI on every run until
-  Phase 11 lands a real drift detector — a visible, honest placeholder rather than a DAG
-  quietly absent from the schedule.
+- `monitoring_dag` ran on a real daily schedule showing "skipped" on every run (the drift
+  detector it called did not exist yet) until Phase 11 landed one — see ADR-0014 for the
+  real implementation that replaced the stub.

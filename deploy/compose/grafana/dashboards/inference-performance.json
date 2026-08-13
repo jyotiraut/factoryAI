@@ -1,0 +1,62 @@
+{
+  "title": "FactoryAI - Inference Performance",
+  "uid": "factoryai-inference-performance",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Predictions per second, by category and verdict",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(factoryai_predictions_total[5m])) by (category, is_anomalous)",
+          "legendFormat": "{{category}} anomalous={{is_anomalous}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Inference latency (p50 / p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(factoryai_prediction_latency_seconds_bucket[5m])) by (le, category))",
+          "legendFormat": "p50 {{category}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(factoryai_prediction_latency_seconds_bucket[5m])) by (le, category))",
+          "legendFormat": "p95 {{category}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Model cache hit ratio",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit" }, "overrides": [] },
+      "targets": [{ "expr": "factoryai_model_cache_hit_ratio" }]
+    },
+    {
+      "id": 4,
+      "title": "Anomalous fraction, by category",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(factoryai_predictions_total{is_anomalous=\"True\"}[15m])) by (category) / sum(rate(factoryai_predictions_total[15m])) by (category)",
+          "legendFormat": "{{category}}"
+        }
+      ]
+    }
+  ]
+}

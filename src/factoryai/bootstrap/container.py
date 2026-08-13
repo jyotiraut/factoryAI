@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from factoryai.application.services.model_cache import ModelCache
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
+from factoryai.application.use_cases.generate_drift_report import GenerateDriftReport
 from factoryai.application.use_cases.get_job_status import GetJobStatus
 from factoryai.application.use_cases.ingest_image import IngestImage
 from factoryai.application.use_cases.list_production_models import ListProductionModels
@@ -43,6 +44,7 @@ from factoryai.domain.policies.validation import (
 from factoryai.domain.ports.auth import PasswordHasher, TokenRevocationList, TokenService
 from factoryai.domain.ports.detection import AnomalyDetector
 from factoryai.domain.ports.imaging import ImageCodec
+from factoryai.domain.ports.monitoring import DriftDetector
 from factoryai.domain.ports.repositories import UnitOfWork
 from factoryai.domain.ports.services import HardwareProbe, SystemClock, UuidGenerator
 from factoryai.domain.ports.storage import ObjectStore
@@ -403,6 +405,26 @@ class Container:
         from factoryai.worker.tasks import dispatch
 
         dispatch(job)
+
+    @cached_property
+    def drift_detector(self) -> DriftDetector:
+        """The Evidently-backed drift detector (Phase 11, ADR-0014).
+
+        Imported lazily; see :attr:`experiment_tracker` — a process that never generates a
+        drift report never needs ``evidently`` importable.
+        """
+        from factoryai.infrastructure.monitoring.evidently_drift import EvidentlyDriftDetector
+
+        return EvidentlyDriftDetector()
+
+    def generate_drift_report_use_case(self) -> GenerateDriftReport:
+        """Build the ``GenerateDriftReport`` use case, wired to this container's adapters."""
+        return GenerateDriftReport(
+            uow_factory=self.unit_of_work,
+            drift_detector=self.drift_detector,
+            clock=SystemClock(),
+            id_generator=UuidGenerator(),
+        )
 
     async def dispose(self) -> None:
         """Release the database connection pool.

@@ -22,6 +22,10 @@ from factoryai.application.use_cases.create_dataset_version import (
     CreateDatasetVersionCommand,
     SplitRatios,
 )
+from factoryai.application.use_cases.generate_drift_report import (
+    GenerateDriftReport,
+    GenerateDriftReportCommand,
+)
 from factoryai.application.use_cases.ingest_image import (
     IngestImage,
     IngestImageCommand,
@@ -60,11 +64,24 @@ class _StorageSettings(Protocol):
     def bucket_raw(self) -> str: ...
 
 
+class _DriftSettings(Protocol):
+    @property
+    def window_hours(self) -> int: ...
+    @property
+    def min_samples(self) -> int: ...
+    @property
+    def data_threshold(self) -> float: ...
+    @property
+    def prediction_threshold(self) -> float: ...
+
+
 class _Settings(Protocol):
     @property
     def storage(self) -> _StorageSettings: ...
     @property
     def promotion(self) -> _PromotionSettings: ...
+    @property
+    def drift(self) -> _DriftSettings: ...
 
 
 class Container(Protocol):
@@ -100,6 +117,9 @@ class Container(Protocol):
 
     def promote_model_use_case(self) -> PromoteModel:
         """Build the :class:`PromoteModel` use case."""
+
+    def generate_drift_report_use_case(self) -> GenerateDriftReport:
+        """Build the :class:`GenerateDriftReport` use case."""
 
 
 async def ingest_from_object_store(
@@ -253,14 +273,40 @@ async def deploy(
 
 
 async def generate_drift_report(container: Container, payload: dict[str, Any]) -> dict[str, Any]:
-    """Generate a drift report.
+    """Generate and persist a drift report for a category's production model.
+
+    See :class:`GenerateDriftReportCommand`. ``payload`` need only carry ``category``;
+    every threshold defaults from :class:`~factoryai.shared.config.DriftSettings`.
 
     Raises:
-        NotImplementedError: Always. Drift detection is Phase 11 scope — see
-            ``docs/ROADMAP.md`` Phase 10's scope-cut note and
-            ``factoryai.worker.tasks.run_drift_report``, which documents the identical cut
-            on the Celery side.
+        NoProductionModelError: If the category has no production model to monitor.
     """
-    raise NotImplementedError(
-        "drift report generation requires the drift detector built in Phase 11"
+    drift = container.settings.drift
+    command = GenerateDriftReportCommand(
+        category=Category.parse(payload["category"]),
+        window_hours=payload.get("window_hours", drift.window_hours),
+        reference_sample_size=payload.get("reference_sample_size", drift.min_samples),
+        min_samples=payload.get("min_samples", drift.min_samples),
+        data_threshold=payload.get("data_threshold", drift.data_threshold),
+        prediction_threshold=payload.get("prediction_threshold", drift.prediction_threshold),
     )
+    report = await container.generate_drift_report_use_case().execute(command)
+    return {
+        "drift_report_id": str(report.id),
+        "model_version_id": str(report.model_version_id),
+        "sample_count": report.sample_count,
+        "is_conclusive": report.is_conclusive,
+        "drift_detected": report.drift_detected,
+        "severity": report.severity.value,
+        "should_trigger_retraining": report.should_trigger_retraining,
+        "signals": [
+            {
+                "name": signal.name,
+                "statistic": signal.statistic,
+                "threshold": signal.threshold,
+                "method": signal.method,
+                "breached": signal.breached,
+            }
+            for signal in report.signals
+        ],
+    }

@@ -49,6 +49,15 @@ class ModelCache:
         self._workdir = workdir
         self._entries: dict[Category, _CacheEntry] = {}
         self._locks: dict[Category, asyncio.Lock] = {}
+        self.hits = 0
+        """Requests served from an already-loaded detector, since process start."""
+        self.misses = 0
+        """Requests that triggered a download and load, since process start.
+
+        Plain integers, not a Prometheus counter: this is the application layer, which
+        stays free of concrete instrumentation tech (ADR-0001) — ``GET /metrics`` (Phase
+        11) reads these two numbers and exposes them however it likes.
+        """
 
     async def get(
         self,
@@ -73,8 +82,10 @@ class ModelCache:
         async with lock:
             cached = self._entries.get(category)
             if cached is not None and cached.model_version_id == model_version_id:
+                self.hits += 1
                 return cached.detector
 
+            self.misses += 1
             detector = await asyncio.to_thread(
                 self._load,
                 model_version_id=model_version_id,

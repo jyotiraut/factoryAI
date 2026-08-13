@@ -243,6 +243,45 @@ services:
         condition: service_completed_successfully
     networks: [factoryai]
 
+  # Phase 11 (ADR-0014): scrapes the API's `/metrics` on the host, exactly the way a
+  # developer's browser would (see `prometheus.yml`'s own comment on why — the API is not
+  # containerised). `extra_hosts` makes `host.docker.internal` resolve on Linux too; Docker
+  # Desktop (Windows/macOS) already provides it without this.
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks: [factoryai]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    networks: [factoryai]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-locally}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+    networks: [factoryai]
+
 networks:
   factoryai:
     name: factoryai
@@ -251,3 +290,5 @@ volumes:
   postgres-data:
   minio-data:
   redis-data:
+  prometheus-data:
+  grafana-data:

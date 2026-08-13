@@ -78,6 +78,7 @@ class TestGet:
 
         assert first is second
         assert detector.loaded is False
+        assert (cache.misses, cache.hits) == (1, 1)
 
     async def test_a_new_version_replaces_the_cached_detector(self, tmp_path: Path) -> None:
         registry = FakeModelRegistry()
@@ -110,3 +111,22 @@ class TestGet:
         )
 
         assert first_loaded is not second_loaded
+        assert (cache.misses, cache.hits) == (2, 0)
+
+
+class TestHitMissCounters:
+    async def test_a_fresh_category_counts_as_a_miss(self, tmp_path: Path) -> None:
+        registry = FakeModelRegistry()
+        cache = _cache(tmp_path, registry, FakeAnomalyDetector())
+
+        await cache.get(
+            _CATEGORY,
+            model_version_id=ModelVersionId(uuid.uuid4()),
+            registry_name="factoryai-bottle",
+            registry_version=1,
+            threshold=0.5,
+            model_family="patchcore",
+            backbone="wide_resnet50_2",
+        )
+
+        assert (cache.misses, cache.hits) == (1, 0)

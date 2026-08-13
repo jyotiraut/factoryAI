@@ -239,27 +239,19 @@ async def _execute_dataset_versioning(container: Container, job: Job) -> dict[st
     bind=True,
     base=JobTask,
     name="factoryai.worker.tasks.run_drift_report",
-    # No autoretry: drift detection has no implementation to retry into (see body below).
-    max_retries=0,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=_RETRY_BACKOFF_MAX_SECONDS,
+    retry_jitter=True,
+    max_retries=_MAX_RETRIES,
 )
 def run_drift_report(self: Task, job_id: str) -> dict[str, Any]:
-    """Generate a drift report.
-
-    Raises:
-        NotImplementedError: Always. Drift detection (Evidently, reference-window
-            comparison) is Phase 11 scope — this task exists so the job infrastructure has
-            every :class:`~factoryai.domain.value_objects.JobType` wired end-to-end, with
-            the one type nothing can implement yet failing loudly and immediately rather
-            than silently, as a documented scope cut (``docs/ROADMAP.md`` Phase 9).
-        Exception: Whatever :func:`_run` raises while marking the job started.
-    """
+    """Generate a drift report (Phase 11, ADR-0014)."""
     return _run(job_id, _execute_drift_report)
 
 
 async def _execute_drift_report(container: Container, job: Job) -> dict[str, Any]:
-    raise NotImplementedError(
-        "drift report generation requires the drift detector built in Phase 11"
-    )
+    return await pipeline_client.generate_drift_report(container, job.payload)
 
 
 _TASK_BY_JOB_TYPE: dict[JobType, Task] = {

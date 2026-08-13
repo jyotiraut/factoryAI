@@ -710,6 +710,13 @@ class FakeJobRepository(JobRepository):
         )
         return matching[:limit]
 
+    async def count_by_status(self) -> dict[str, int]:
+        """Return job counts grouped by status, zero-filled for every status."""
+        counts = {status.value: 0 for status in JobStatus}
+        for job in self._by_id.values():
+            counts[job.status.value] += 1
+        return counts
+
 
 class FakeTokenRevocationList(TokenRevocationList):
     """An in-memory revocation list."""

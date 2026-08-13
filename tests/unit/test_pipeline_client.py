@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from factoryai import pipeline_client
 from factoryai.application.use_cases.create_dataset_version import CreateDatasetVersion
+from factoryai.application.use_cases.generate_drift_report import GenerateDriftReport
 from factoryai.application.use_cases.ingest_image import IngestImage
 from factoryai.application.use_cases.promote_model import PromoteModel
 from factoryai.application.use_cases.train_model import TrainModel
@@ -22,10 +24,12 @@ from factoryai.domain.entities import (
     DatasetMember,
     DatasetVersion,
     EvaluationMetrics,
+    ModelVersion,
 )
-from factoryai.domain.errors import PromotionRejectedError
+from factoryai.domain.errors import NoProductionModelError, PromotionRejectedError
 from factoryai.domain.ports.detection import AnomalyDetector
 from factoryai.domain.value_objects import (
+    AnomalyScore,
     Category,
     Checksum,
     DatasetSplit,
@@ -38,7 +42,8 @@ from factoryai.domain.value_objects import (
     Resolution,
     StorageLocation,
 )
-from tests.builders import NOW, a_dataset, a_model_version, an_image
+from factoryai.infrastructure.monitoring.evidently_drift import EvidentlyDriftDetector
+from tests.builders import NOW, a_dataset, a_model_version, a_prediction, an_experiment, an_image
 from tests.fakes import (
     FakeAnomalyDetector,
     FakeClock,
@@ -85,8 +90,15 @@ class _FakeContainer:
             improvement_margin = 0.005
             max_recall_regression = 0.01
 
+        class _Drift:
+            window_hours = 24
+            min_samples = 2
+            data_threshold = 0.15
+            prediction_threshold = 0.10
+
         storage = _Storage()
         promotion = _Promotion()
+        drift = _Drift()
 
     settings = _Settings()
 
@@ -135,6 +147,14 @@ class _FakeContainer:
         return make_promote_model_use_case(
             uow=self.uow,
             model_registry=self.model_registry,
+            clock=FakeClock(NOW),
+            id_generator=FakeIdGenerator(),
+        )
+
+    def generate_drift_report_use_case(self) -> GenerateDriftReport:
+        return GenerateDriftReport(
+            uow_factory=lambda: self.uow,
+            drift_detector=EvidentlyDriftDetector(),
             clock=FakeClock(NOW),
             id_generator=FakeIdGenerator(),
         )
@@ -346,8 +366,22 @@ class TestDeploy:
             )
 
 
+async def _seed_production_model(uow: FakeUnitOfWork, *, created_at: datetime) -> ModelVersion:
+    """Register a production model for ``_CATEGORY``, created at a given timestamp."""
+    experiment = an_experiment(dataset_version_id=DatasetVersionId(uuid.uuid4()))
+    await uow.experiments.add(experiment)
+    model = a_model_version(
+        experiment_id=experiment.id,
+        category=_CATEGORY,
+        stage=ModelStage.PRODUCTION,
+        created_at=created_at,
+    )
+    await uow.models.add(model)
+    return model
+
+
 class TestGenerateDriftReport:
-    async def test_always_raises_not_implemented(self) -> None:
+    async def test_no_production_model_raises(self) -> None:
         container = _FakeContainer(
             uow=FakeUnitOfWork(),
             object_store=FakeObjectStore(),
@@ -355,5 +389,59 @@ class TestGenerateDriftReport:
             workdir=Path(),
         )
 
-        with pytest.raises(NotImplementedError):
-            await pipeline_client.generate_drift_report(container, {})
+        with pytest.raises(NoProductionModelError):
+            await pipeline_client.generate_drift_report(container, {"category": "bottle"})
+
+    async def test_a_window_below_min_samples_is_inconclusive(self) -> None:
+        uow = FakeUnitOfWork()
+        model = await _seed_production_model(uow, created_at=NOW - timedelta(hours=48))
+        await uow.predictions.add(
+            a_prediction(model_version_id=model.id, predicted_at=NOW - timedelta(hours=1))
+        )
+        container = _FakeContainer(
+            uow=uow,
+            object_store=FakeObjectStore(),
+            model_registry=FakeModelRegistry(),
+            workdir=Path(),
+        )
+
+        result = await pipeline_client.generate_drift_report(container, {"category": "bottle"})
+
+        assert result["is_conclusive"] is False
+        assert result["sample_count"] == 1
+        assert result["signals"] == []
+
+    async def test_a_shifted_window_reports_breached_signals(self) -> None:
+        uow = FakeUnitOfWork()
+        model = await _seed_production_model(uow, created_at=NOW - timedelta(hours=48))
+        for _ in range(5):
+            await uow.predictions.add(
+                a_prediction(
+                    model_version_id=model.id,
+                    predicted_at=NOW - timedelta(hours=47),
+                    score=AnomalyScore(value=0.2, threshold=0.5),
+                )
+            )
+        for _ in range(5):
+            await uow.predictions.add(
+                a_prediction(
+                    model_version_id=model.id,
+                    predicted_at=NOW - timedelta(hours=1),
+                    score=AnomalyScore(value=0.9, threshold=0.5),
+                )
+            )
+        container = _FakeContainer(
+            uow=uow,
+            object_store=FakeObjectStore(),
+            model_registry=FakeModelRegistry(),
+            workdir=Path(),
+        )
+
+        result = await pipeline_client.generate_drift_report(container, {"category": "bottle"})
+
+        assert result["is_conclusive"] is True
+        assert result["sample_count"] == 5
+        assert result["drift_detected"] is True
+        assert any(
+            signal["name"] == "anomaly_score" and signal["breached"] for signal in result["signals"]
+        )

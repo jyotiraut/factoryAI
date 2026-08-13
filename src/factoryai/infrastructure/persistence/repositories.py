@@ -702,6 +702,14 @@ class SqlAlchemyJobRepository(JobRepository):
         )
         return [mappers.job_to_entity(row) for row in rows]
 
+    async def count_by_status(self) -> dict[str, int]:
+        """Return job counts grouped by status, zero-filled for every status."""
+        stmt = select(JobRow.status, func.count()).group_by(JobRow.status)
+        counts = {status.value: 0 for status in JobStatus}
+        for status, count in await self._session.execute(stmt):
+            counts[status] = count
+        return counts
+
     async def _get_row(self, job_id: JobId) -> JobRow:
         row = await self._session.get(JobRow, job_id)
         if row is None:

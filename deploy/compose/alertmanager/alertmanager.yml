@@ -1,0 +1,17 @@
+# Alertmanager configuration for FactoryAI (Phase 11, ADR-0014).
+#
+# The `default` receiver has no integrations wired up — this project holds no Slack/
+# PagerDuty credentials to send a real notification to (the same gap ADR-0013's
+# `alert_on_failure`/`alert_on_sla_miss` document for Airflow). Alerts still route here,
+# group and de-duplicate correctly, and are visible in Alertmanager's own UI
+# (http://localhost:9093) — wiring a real notification channel means adding a
+# `slack_configs`/`webhook_configs` block to this receiver, nothing more.
+route:
+  receiver: default
+  group_by: ["alertname", "category"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default

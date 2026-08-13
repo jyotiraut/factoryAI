@@ -42,10 +42,10 @@ path rather than trusting its own prior `find_by_idempotency_key`.
 **Retry policy is Celery's own exponential backoff, not a hand-rolled scheduler.**
 `autoretry_for=(Exception,)` with `retry_backoff=True`, `retry_jitter=True` and a capped
 `max_retries` on every task that calls real infrastructure (inference, training, dataset
-versioning). The one exception is `run_drift_report`: it raises `NotImplementedError`
-unconditionally (Phase 11 has not built a drift detector yet — see `docs/ROADMAP.md` Phase
-9's scope-cut note), and retrying into a guaranteed failure would only delay an operator
-noticing, so it carries `max_retries=0` and no `autoretry_for`.
+versioning, and — once Phase 11 built it — drift report generation). Until Phase 11
+landed, `run_drift_report` raised `NotImplementedError` unconditionally and carried
+`max_retries=0`, since retrying into a guaranteed failure would only have delayed an
+operator noticing; see ADR-0014 for what replaced it.
 
 **A permanently failed task marks its job `failed` and is recorded on a `dead_letter`
 queue, not silently dropped.** `JobTask.on_failure` — called by Celery exactly once retries

@@ -139,10 +139,7 @@ def run_deploy(*, category: str, model_version_id: str, reason: str = "") -> dic
 def run_drift_report(payload: dict[str, Any]) -> dict[str, Any]:
     """Task body for ``monitoring_dag``.
 
-    Raises:
-        NotImplementedError: Always — see :func:`factoryai.pipeline_client.
-            generate_drift_report`. ``monitoring_dag`` catches this and skips rather than
-            fails.
+    See :func:`factoryai.pipeline_client.generate_drift_report` (Phase 11, ADR-0014).
     """
     return _call("drift-report", "--payload", json.dumps(payload))
 
@@ -153,7 +150,7 @@ def alert_on_failure(context: Mapping[str, Any]) -> None:
     This is the extension point a real deployment wires a Slack or PagerDuty webhook into
     (ADR-0013) — structured logging is what ships here, since this project has no
     third-party alerting credentials to integrate against. Anything reading these logs
-    (a log-based alert in the eventual Phase 11 monitoring stack, an operator's `grep`) gets
+    (a Prometheus/Alertmanager rule reading the same signal, an operator's `grep`) gets
     the same fields either way.
     """
     task_instance = context.get("task_instance")

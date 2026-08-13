@@ -22,3 +22,4 @@ Format: [MADR](https://adr.github.io/madr/)-lite. Status is one of `proposed`, `
 | [0011](0011-jwt-auth-and-rbac.md) | JWT authentication, permission-keyed RBAC, and audit tamper detection | accepted |
 | [0012](0012-background-job-design.md) | Background job design: idempotency, retry/backoff, and the dead-letter queue | accepted |
 | [0013](0013-airflow-dag-design.md) | Airflow DAG design: the thin client, sensors, and business-outcome vocabulary | accepted |
+| [0014](0014-monitoring-and-drift-detection.md) | Monitoring and drift detection: reference windows, pull-model gauges, and Evidently | accepted |

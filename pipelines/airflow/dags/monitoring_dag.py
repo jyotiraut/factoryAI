@@ -1,10 +1,12 @@
-"""``monitoring``: scheduled drift check.
+"""``monitoring``: scheduled drift check against each enabled category's production model.
 
-Scope cut, documented rather than silently skipped (``docs/ROADMAP.md`` Phase 10, ADR-0013,
-matching the identical cut in ``factoryai.worker.tasks.run_drift_report``): drift detection
-does not exist until Phase 11. This DAG is wired end-to-end — schedule, SLA, failure
-callback — with nothing behind its one task yet; it skips itself every run rather than
-failing, since "not yet implemented" is not the same claim as "broken".
+Generates and persists a :class:`~factoryai.domain.entities.monitoring.DriftReport`
+(Phase 11, ADR-0014) on a daily schedule. The report itself is the only output this DAG
+produces — turning a breached signal into a Prometheus alert is the API's job (it polls
+``DriftReportRepository.latest`` and exposes the result as a gauge Alertmanager's rules
+watch), not Airflow's; see ADR-0014 for why alerting lives there and not in a DAG
+callback. Automatically triggering a retraining run from a drift alert is Phase 12 scope —
+this DAG only measures and records.
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from airflow.decorators import dag, task
-from airflow.exceptions import AirflowSkipException
 from common import DEFAULT_ARGS, alert_on_failure, alert_on_sla_miss, run_drift_report
 
 
@@ -27,14 +28,11 @@ from common import DEFAULT_ARGS, alert_on_failure, alert_on_sla_miss, run_drift_
     params={"category": "bottle"},
 )
 def monitoring_dag() -> None:
-    """Check for drift — currently always skips; see the module docstring."""
+    """Generate a drift report for the category's current production model."""
 
     @task(sla=timedelta(minutes=15))
-    def check_drift(**context: dict) -> None:
-        try:
-            run_drift_report({"category": context["params"]["category"]})
-        except NotImplementedError as exc:
-            raise AirflowSkipException(str(exc)) from exc
+    def check_drift(**context: dict) -> dict[str, object]:
+        return run_drift_report({"category": context["params"]["category"]})
 
     check_drift()
 

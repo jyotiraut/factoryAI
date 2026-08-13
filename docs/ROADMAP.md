@@ -715,7 +715,7 @@ in ADR-0013, not silently absent.
 
 ---
 
-## Phase 11 — Monitoring & drift detection
+## Phase 11 — Monitoring & drift detection *(complete)*
 
 **Goal:** know the system's health and the model's health separately.
 
@@ -730,6 +730,86 @@ in ADR-0013, not silently absent.
 **Exit criteria**
 - Injecting shifted images (brightness/blur perturbation) raises a drift alert.
 - Every alert has a corresponding runbook in `docs/runbooks/`.
+
+**Delivered.** ADR-0014 records the design in full; summary of what actually shipped:
+
+- `EvidentlyDriftDetector` (`infrastructure/monitoring/evidently_drift.py`), implementing
+  the `DriftDetector` port Phase 1 already scaffolded, via Evidently's statistical-test
+  registry (Wasserstein distance) rather than its heavier `Report`/`Dataset` API — verified
+  directly against synthetic same-distribution and shifted-distribution samples before
+  being wired into the use case around it.
+- `GenerateDriftReport` (`application/use_cases/generate_drift_report.py`): compares a
+  production model's earliest predictions (the reference window) against its most recent
+  ones (the current window), both read through the same `PredictionRepository.
+  list_in_window` — exactly what `Prediction`'s own Phase 2 docstring already anticipated
+  ("the distribution of all scores is the reference signal drift detection compares
+  against"), so no detector re-scoring pass over the training set was needed. Two signals:
+  `anomaly_score` (prediction drift, gated by `DRIFT_PREDICTION_THRESHOLD`) and
+  `confidence` (gated by `DRIFT_DATA_THRESHOLD`) — feature/embedding drift stays out of
+  scope until `AnomalyDetector` exposes raw features, a real, tracked gap, not a silent one.
+- `pipeline_client.generate_drift_report` and `factoryai.worker.tasks.run_drift_report`
+  now call the real use case — the `NotImplementedError` scope cut Phases 9 and 10 both
+  documented is gone, and the Celery task retries with the same backoff every other job
+  type gets. `monitoring_dag` (Airflow) generates and persists a real report on its daily
+  schedule instead of skipping every run; it only measures and records — turning a
+  breached signal into a page is Prometheus/Alertmanager's job, not a DAG callback's.
+- `JobRepository.count_by_status()` (port + SQLAlchemy + fake), added because the
+  job-queue-depth gauge needs a real grouped count — `len(list_by_status(...,
+  limit=100))` would silently undercount past the limit, exactly the kind of gauge bug
+  that looks fine in a demo and lies in production.
+- `ModelCache` now tracks `hits`/`misses` as two plain integers (not a Prometheus counter —
+  the application layer stays free of concrete instrumentation tech, ADR-0001), exposed
+  via `GET /metrics` as a hit-ratio gauge.
+- `PrometheusMiddleware` records request count and latency for every route under its
+  matched route *template* (not the raw path, which would mint one label series per job id
+  and grow cardinality without bound), plus new gauges for host CPU/memory/disk, GPU
+  utilisation (absent entirely, not zero, on a CPU-only host), job counts by status, and
+  drift severity/signal statistics per enabled category. All the gauges are recomputed
+  fresh inside the `/metrics` handler on every scrape rather than by a background refresh
+  loop — Prometheus's own pull model already re-reads them on its scrape interval, so a
+  live query is exactly as fresh as a cached one would be, without a second long-lived
+  task to keep alive or notice has silently stopped updating.
+- `deploy/compose/docker-compose.yml` gained `prometheus`, `alertmanager` and `grafana`
+  services. Prometheus scrapes `host.docker.internal:8000` (the API is not
+  containerised, same as the worker — Phase 9's decision; `extra_hosts` makes the hostname
+  resolve on Linux too, not only Docker Desktop). Four Grafana dashboards (Service Health,
+  Inference Performance, Model Quality, Data Pipeline) are provisioned from JSON files
+  under `deploy/compose/grafana/dashboards/`, and eight alert rules across drift, service
+  health and the data pipeline live in `deploy/compose/prometheus/rules/factoryai.yml`,
+  each carrying a `runbook_url` annotation — six runbooks under `docs/runbooks/` (drift,
+  error rate, latency, resource usage, job backlog, cache hit ratio) satisfy that half of
+  the exit criteria directly. Alertmanager's `default` receiver has no Slack/PagerDuty
+  integration wired up — the identical credentials gap ADR-0013 already documented for
+  Airflow's own callbacks; alerts still route, group and de-duplicate correctly and are
+  visible in Alertmanager's own UI.
+- Automatically triggering `retraining` from a high-severity drift alert is deliberately
+  **not** built here — that connection is Phase 12's ("Automatic retraining & human
+  feedback loop") to own; this phase stops at "the alert fires and a runbook exists."
+- Verified with new unit tests: `EvidentlyDriftDetector` against synthetic distributions,
+  `GenerateDriftReport` (no production model, an inconclusive window, a genuinely shifted
+  window with breached signals) against fakes, `ModelCache`'s hit/miss counters, and
+  `GET /metrics` (Prometheus content type, system/cache/job gauges present, a seeded
+  breached drift report exposed correctly per signal). `ruff`, `black --check`,
+  `mypy --strict` and the import-linter layer contracts all pass against the full changed
+  surface — including a new `pandas.*`/mypy ignore entry Evidently's stat-test registry
+  needed.
+
+**Live-verified once Docker became available**, and — matching the pattern Phase 10 already
+established — it did not go cleanly on the first attempt; see ADR-0014's "Live
+verification" section for the full account. Confirmed directly against the real compose
+stack: Prometheus loaded its config and all 8 alert rules with zero errors; Alertmanager
+reported its cluster ready; all 4 Grafana dashboards were provisioned and discoverable;
+the `factoryai-api` scrape target reported healthy, and `factoryai_system_cpu_percent` was
+queryable through Prometheus's own API with a real value — the full expose → scrape →
+query path working end to end. One real bug surfaced and was fixed in the same pass:
+`GET /metrics` returned a bare `500` while the database was briefly unreachable, which
+would have made Prometheus mark the *whole* scrape target down and lose the system gauges
+an operator needs most in exactly that situation — the two DB-backed gauge groups now fail
+independently and log a warning, with a regression test added rather than relying on live
+infrastructure staying broken to prove it. Two environment-only issues (unrelated to this
+phase's code, documented in ADR-0014 for the next session on this host) were also found
+and fixed: a stale `.env` port left over from an earlier remap, and a native Postgres
+service on the host competing with Docker's own port-forwarding for `5432`.
 
 ---
 

@@ -10,10 +10,11 @@ interpreter running this module, rather than importing `factoryai` directly.
 
 Exit codes carry outcomes a subprocess boundary would otherwise flatten to "some error, see
 stderr": ``0`` success (JSON result on stdout), ``3`` a business rejection
-(:class:`~factoryai.domain.errors.PromotionRejectedError`), ``4`` "not implemented yet"
-(:class:`NotImplementedError`, Phase 11's drift detector). Anything else is a genuine
-failure — stderr carries the traceback, and the caller's ``subprocess.run(check=True)``
-raises.
+(:class:`~factoryai.domain.errors.PromotionRejectedError`), ``4`` a use case that raised
+:class:`NotImplementedError` — no current caller does, but the code is kept reserved for
+the next deliberate scope cut rather than reused for something else. Anything else is a
+genuine failure — stderr carries the traceback, and the caller's ``subprocess.run(check=
+True)`` raises.
 """
 
 from __future__ import annotations

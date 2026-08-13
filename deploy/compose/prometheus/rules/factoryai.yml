@@ -1,0 +1,101 @@
+# Alert rules for FactoryAI (Phase 11, ADR-0014). Every alert carries a `runbook_url`
+# annotation, per the ROADMAP's own exit criterion — pointed at a repo-relative path today
+# (this project has no public docs host to link to yet); a real deployment would replace
+# the prefix with wherever `docs/runbooks/` is actually published.
+groups:
+  - name: factoryai.drift
+    rules:
+      - alert: FactoryAIDriftMedium
+        expr: factoryai_drift_severity >= 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drift detected for category {{ $labels.category }}"
+          description: >-
+            The production model for category {{ $labels.category }} has scored medium or
+            higher drift severity for at least 10 minutes.
+          runbook_url: "docs/runbooks/drift-detected.md"
+
+      - alert: FactoryAIDriftHigh
+        expr: factoryai_drift_severity >= 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High-severity drift for category {{ $labels.category }}"
+          description: >-
+            The production model for category {{ $labels.category }} has scored high drift
+            severity for at least 5 minutes — retraining is likely warranted.
+          runbook_url: "docs/runbooks/drift-detected.md"
+
+  - name: factoryai.service_health
+    rules:
+      - alert: FactoryAIHighErrorRate
+        expr: >-
+          sum(rate(factoryai_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(factoryai_http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FactoryAI API error rate above 5%"
+          description: "More than 5% of requests over the last 5 minutes returned a 5xx status."
+          runbook_url: "docs/runbooks/high-error-rate.md"
+
+      - alert: FactoryAIHighLatency
+        expr: >-
+          histogram_quantile(0.95,
+            sum(rate(factoryai_http_request_latency_seconds_bucket[5m])) by (le, path)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FactoryAI API p95 latency above 2s"
+          description: "{{ $labels.path }}'s 95th-percentile latency has exceeded 2 seconds for 5 minutes."
+          runbook_url: "docs/runbooks/high-latency.md"
+
+      - alert: FactoryAIHighCPU
+        expr: factoryai_system_cpu_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FactoryAI host CPU above 90%"
+          runbook_url: "docs/runbooks/high-resource-usage.md"
+
+      - alert: FactoryAIHighMemory
+        expr: factoryai_system_memory_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FactoryAI host memory above 90%"
+          runbook_url: "docs/runbooks/high-resource-usage.md"
+
+  - name: factoryai.data_pipeline
+    rules:
+      - alert: FactoryAIJobQueueBacklog
+        expr: factoryai_jobs{status="queued"} > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FactoryAI background job queue backlog"
+          description: "More than 50 jobs have sat queued for 15 minutes — the worker may be stalled."
+          runbook_url: "docs/runbooks/job-queue-backlog.md"
+
+      - alert: FactoryAILowModelCacheHitRatio
+        expr: factoryai_model_cache_hit_ratio < 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FactoryAI model cache hit ratio below 50%"
+          description: >-
+            The inference service is reloading detectors far more often than serving from
+            cache — check for promotion thrashing or a ModelCache bug.
+          runbook_url: "docs/runbooks/low-cache-hit-ratio.md"

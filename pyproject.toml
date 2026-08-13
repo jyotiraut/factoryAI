@@ -188,6 +188,9 @@ ignore = [
 # not the mutable-default footgun B008 exists to catch (same rationale as cli.py's
 # typer.Option()).
 "src/factoryai/api/**" = ["B008"]
+# torch is imported lazily inside the GPU gauge refresh, same reasoning as
+# bootstrap/container.py: a CPU-only deployment never needs it importable.
+"src/factoryai/api/routers/metrics.py" = ["B008", "PLC0415"]
 # Celery's task signature (`bind=True` tasks take `self` even when unused) and
 # `Task.on_failure`'s fixed parameter list (`task_id` is part of Celery's own contract, not
 # something every override needs) are dictated by the library, not by this file's design.
@@ -241,6 +244,7 @@ module = [
     "torchvision.*",
     "psutil.*",
     "celery.*",
+    "pandas.*",
 ]
 ignore_missing_imports = true
 

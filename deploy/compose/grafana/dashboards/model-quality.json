@@ -1,0 +1,47 @@
+{
+  "title": "FactoryAI - Model Quality",
+  "uid": "factoryai-model-quality",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-7d", "to": "now" },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Drift severity, by category (0=none, 1=low, 2=medium, 3=high)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 3 }, "overrides": [] },
+      "targets": [
+        { "expr": "factoryai_drift_severity", "legendFormat": "{{category}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Drift signal statistic vs. threshold",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "factoryai_drift_signal_statistic",
+          "legendFormat": "{{category}} {{signal}} statistic"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Breached drift signals",
+      "type": "state-timeline",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "factoryai_drift_signal_breached",
+          "legendFormat": "{{category}} {{signal}}"
+        }
+      ]
+    }
+  ]
+}

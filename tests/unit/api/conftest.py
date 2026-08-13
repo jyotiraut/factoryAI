@@ -28,7 +28,11 @@ from tests.fakes import (
     FakeUnitOfWork,
 )
 
-from factoryai.api.middleware import CorrelationIdMiddleware, MaxBodySizeMiddleware
+from factoryai.api.middleware import (
+    CorrelationIdMiddleware,
+    MaxBodySizeMiddleware,
+    PrometheusMiddleware,
+)
 from factoryai.api.routers import auth, feedback, health, jobs, models, predict
 from factoryai.api.routers.metrics import router as metrics_router
 from factoryai.application.services.model_cache import ModelCache
@@ -214,6 +218,7 @@ def build_test_app(container: FakeContainer) -> FastAPI:
     app.state.prediction_semaphore = asyncio.Semaphore(4)
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=container.settings.api.max_request_bytes)
     app.add_middleware(CorrelationIdMiddleware)
+    app.add_middleware(PrometheusMiddleware)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(predict.router)
