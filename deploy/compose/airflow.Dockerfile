@@ -39,9 +39,13 @@ RUN /opt/factoryai-venv/bin/pip install --no-cache-dir \
 # container-only volume — see `docker-compose.yml`) are owned by a UID Git never considers
 # "mine", so its dubious-ownership check needs a blanket `safe.directory` exemption or every
 # `git`/`dvc` call in either one fails outright.
+#
+# `libgl1`/`libglib2.0-0` are required by `opencv-python`, a transitive dependency pulled in
+# through `anomalib` (imported the moment training actually runs) — its compiled extension
+# dynamically loads `libGL.so.1` at import time, which no Python-only fix can substitute for.
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*'
 USER airflow
