@@ -1,0 +1,83 @@
+{{- if .Values.postgresql.enabled }}
+# A single-replica, PVC-backed Postgres for a self-contained kind/demo install — not a
+# production-grade HA database. A real environment sets `postgresql.enabled: false` and
+# points `postgresql.external.host` at a managed instance (see `deploy/terraform/modules/
+# managed-postgres`), same as `values-production.yaml` does.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "factoryai.fullname" . }}-postgresql
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "factoryai.fullname" . }}-postgresql
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "postgresql") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.user | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "factoryai.fullname" . }}-postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "factoryai.fullname" . }}-postgresql
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  ports:
+    - name: postgresql
+      port: 5432
+  selector:
+    {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "postgresql") | nindent 4 }}
+{{- end }}

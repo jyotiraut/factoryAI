@@ -1,0 +1,14 @@
+{{- if .Values.worker.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "factoryai.fullname" . }}-worker
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: {{ .Values.worker.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "worker") | nindent 6 }}
+{{- end }}

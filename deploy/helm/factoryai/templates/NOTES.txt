@@ -1,0 +1,32 @@
+FactoryAI has been installed.
+
+Check pod status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Port-forward the API:
+  kubectl port-forward svc/{{ include "factoryai.fullname" . }}-api {{ .Values.api.service.port }}:{{ .Values.api.service.port }}
+  curl http://localhost:{{ .Values.api.service.port }}/health/live
+
+{{- if .Values.ingress.enabled }}
+Or, via Ingress (add "{{ .Values.ingress.host }}" to /etc/hosts pointing at your ingress controller's address):
+  curl http://{{ .Values.ingress.host }}/health/live
+{{- end }}
+
+{{- if or .Values.postgresql.enabled .Values.redis.enabled .Values.minio.enabled .Values.mlflow.enabled }}
+
+This release bundles its own backing services for a self-contained install:
+{{- if .Values.postgresql.enabled }}
+  - PostgreSQL ({{ include "factoryai.fullname" . }}-postgresql)
+{{- end }}
+{{- if .Values.redis.enabled }}
+  - Redis ({{ include "factoryai.fullname" . }}-redis)
+{{- end }}
+{{- if .Values.minio.enabled }}
+  - MinIO ({{ include "factoryai.fullname" . }}-minio)
+{{- end }}
+{{- if .Values.mlflow.enabled }}
+  - MLflow ({{ include "factoryai.fullname" . }}-mlflow)
+{{- end }}
+A production install should disable whichever of these a managed service already
+replaces — see values-production.yaml and deploy/terraform.
+{{- end }}

@@ -52,3 +52,5 @@ docker/volumes/
 *.tfstate
 *.tfstate.*
 .terraform/
+*.tfvars
+!*.tfvars.example

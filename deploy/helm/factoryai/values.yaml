@@ -1,0 +1,153 @@
+# Default values for the factoryai chart — a self-contained kind/demo install: every
+# backing service (Postgres, Redis, MinIO, MLflow) is bundled and enabled by default, so
+# `helm install factoryai .` brings up the whole stack with zero external dependencies
+# (this chart's own exit criterion, ROADMAP Phase 14). A real staging/production install
+# overrides `*.enabled: false` for whichever of these a managed service (RDS, ElastiCache,
+# real S3, a shared MLflow) already replaces — see values-production.yaml.
+
+image:
+  repository: factoryai
+  tag: local
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+api:
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercent: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  probes:
+    liveness:
+      path: /health/live
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    readiness:
+      path: /health/ready
+      initialDelaySeconds: 10
+      periodSeconds: 10
+
+worker:
+  replicaCount: 2
+  queues: "training,inference,reports,dead_letter"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+ingress:
+  enabled: true
+  className: nginx
+  host: factoryai.local
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: factoryai-tls
+
+# Non-secret application configuration — mounted as a ConfigMap. Every key here is a
+# `FACTORYAI_*`-prefixed-or-not env var `shared/config.py`'s `Settings` reads directly
+# (see that module for the full mapping); secrets (passwords, keys) live in `secrets`
+# below instead, never here.
+config:
+  logLevel: INFO
+  logFormat: json
+  apiCorsOrigins: "http://localhost:3000"
+  storageBackend: minio
+  storageUseSsl: "false"
+  storageRegion: eu-central-1
+  jwtAlgorithm: HS256
+  jwtAccessTokenMinutes: "30"
+  jwtRefreshTokenDays: "7"
+
+# Secrets a real install MUST override (`--set` or a sealed/external-secrets-managed
+# values file) — the chart's own defaults are development-only placeholders, deliberately
+# obvious rather than deceptively realistic, so a value left at default is easy to spot in
+# a review.
+secrets:
+  postgresPassword: "changeme-postgres"
+  jwtSecretKey: "changeme-jwt-secret-changeme-jwt-secret"
+  storageAccessKey: "factoryai"
+  storageSecretKey: "changeme-storage-secret"
+
+postgresql:
+  enabled: true
+  image: postgres:16-alpine
+  database: factoryai
+  user: factoryai
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  # Used instead when `enabled: false` — e.g. an RDS endpoint from `deploy/terraform`.
+  external:
+    host: ""
+    port: 5432
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  external:
+    host: ""
+    port: 6379
+
+minio:
+  enabled: true
+  image: quay.io/minio/minio:latest
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  # Used instead when `enabled: false` — e.g. a real S3 bucket from `deploy/terraform`.
+  external:
+    endpoint: ""
+
+mlflow:
+  enabled: true
+  image: factoryai-mlflow:local
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  external:
+    trackingUri: ""

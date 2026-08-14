@@ -1,0 +1,114 @@
+{{- if .Values.mlflow.enabled }}
+# MLflow's own metadata store is a second database inside the same Postgres instance
+# (ADR-0004's reasoning: a separate schema per third-party app, not one shared with
+# factoryai's own tables) — this Job creates it, mirroring `docker-compose.yml`'s own
+# `mlflow-db-init` service.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "factoryai.fullname" . }}-mlflow-db-init
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow-db-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: POSTGRES_PASSWORD
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h {{ include "factoryai.postgresHost" . }} -U {{ .Values.postgresql.user }}; do sleep 2; done
+              psql -h {{ include "factoryai.postgresHost" . }} -U {{ .Values.postgresql.user }} -d {{ .Values.postgresql.database }} -tc \
+                "SELECT 1 FROM pg_database WHERE datname = 'mlflow'" | grep -q 1 || \
+              psql -h {{ include "factoryai.postgresHost" . }} -U {{ .Values.postgresql.user }} -d {{ .Values.postgresql.database }} -c \
+                "CREATE DATABASE mlflow"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "factoryai.fullname" . }}-mlflow
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "mlflow") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "mlflow") | nindent 8 }}
+    spec:
+      containers:
+        - name: mlflow
+          image: {{ .Values.mlflow.image }}
+          command:
+            - mlflow
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --backend-store-uri=postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "factoryai.postgresHost" . }}:5432/mlflow
+            - --default-artifact-root=s3://factoryai-artifacts/
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: POSTGRES_PASSWORD
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: {{ include "factoryai.storageEndpoint" . | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_SECRET_KEY
+          ports:
+            - name: http
+              containerPort: 5000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "factoryai.fullname" . }}-mlflow
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  ports:
+    - name: http
+      port: 5000
+  selector:
+    {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "mlflow") | nindent 4 }}
+{{- end }}

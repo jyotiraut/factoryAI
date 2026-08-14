@@ -1,0 +1,128 @@
+{{- if .Values.minio.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "factoryai.fullname" . }}-minio
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "factoryai.fullname" . }}-minio
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "minio") | nindent 8 }}
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_SECRET_KEY
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "factoryai.fullname" . }}-minio
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "factoryai.fullname" . }}-minio
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  ports:
+    - name: api
+      port: 9000
+    - name: console
+      port: 9001
+  selector:
+    {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "minio") | nindent 4 }}
+---
+# Creates the four buckets the app expects (`shared/config.py`'s `StorageSettings.
+# buckets`) — the same job `minio-init` already does for `docker compose`, just as a
+# Helm post-install/post-upgrade hook instead of a compose service with a `depends_on`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "factoryai.fullname" . }}-minio-init
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "factoryai.fullname" . }}-secrets
+                  key: STORAGE_SECRET_KEY
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until mc alias set target http://{{ include "factoryai.fullname" . }}-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done
+              for bucket in factoryai-raw factoryai-datasets factoryai-artifacts factoryai-heatmaps; do
+                mc mb --ignore-existing target/$bucket
+              done
+{{- end }}

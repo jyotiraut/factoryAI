@@ -235,7 +235,14 @@ class ApiSettings(BaseSettings):
     max_request_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
     max_concurrent_predictions: int = Field(default=4, ge=1)
     heatmap_url_ttl_seconds: int = Field(default=900, ge=60, le=604_800)
-    cors_origins: tuple[str, ...] = ("http://localhost:3000",)
+    # NoDecode: arrives as a plain string ("http://a,http://b"), not JSON — the same gotcha
+    # `IngestionSettings`'s tuple fields above already document; without it, pydantic-
+    # settings tries to JSON-decode the raw env value itself before this class's own
+    # `mode="before"` validator ever runs, and fails on anything that isn't valid JSON.
+    # Found live (Phase 14, ADR-0017): every unit test constructs `ApiSettings` directly
+    # with a real tuple, so this path was never exercised through an actual env var until
+    # a Kubernetes ConfigMap did exactly that and crash-looped the pod.
+    cors_origins: Annotated[tuple[str, ...], NoDecode] = ("http://localhost:3000",)
 
     @field_validator("cors_origins", mode="before")
     @classmethod

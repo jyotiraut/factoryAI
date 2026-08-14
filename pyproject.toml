@@ -101,6 +101,10 @@ test-infra = [
     "testcontainers[postgres,minio]>=4.8,<5",
     "httpx>=0.27,<1",
 ]
+# Phase 14 — load testing
+loadtest = [
+    "locust>=2.31,<3",
+]
 
 [project.scripts]
 factoryai = "factoryai.cli:app"

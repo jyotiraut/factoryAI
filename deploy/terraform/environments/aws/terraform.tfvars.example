@@ -1,0 +1,41 @@
+# Copy to terraform.tfvars and fill in real values before `terraform apply`.
+# terraform.tfvars is git-ignored (see the repo's .gitignore) — never commit real
+# credentials or account-specific IDs.
+
+aws_region  = "eu-central-1"
+environment = "staging"
+
+# Existing VPC/subnets this environment's RDS instance and security group attach to.
+# This module does not create a VPC — see environments/aws/variables.tf's note on why.
+vpc_id     = "vpc-REPLACE_ME"
+subnet_ids = ["subnet-REPLACE_ME_A", "subnet-REPLACE_ME_B"]
+
+# The application's own EKS node/pod security group, so Postgres ingress is scoped to the
+# app rather than a CIDR range. Leave db_allowed_cidr_blocks empty unless something outside
+# the cluster (a bastion, a CI runner) also needs direct access.
+db_allowed_security_group_ids = ["sg-REPLACE_ME"]
+db_allowed_cidr_blocks        = []
+
+db_instance_class = "db.t3.micro"
+db_multi_az       = false
+
+# Secrets: generate real values, do not reuse these placeholders.
+db_master_password  = "REPLACE_ME_WITH_A_GENERATED_PASSWORD"
+jwt_secret_key      = "REPLACE_ME_WITH_A_GENERATED_SECRET"
+storage_access_key  = "REPLACE_ME_WITH_A_REAL_IAM_ACCESS_KEY"
+storage_secret_key  = "REPLACE_ME_WITH_A_REAL_IAM_SECRET_KEY"
+
+object_storage_buckets = {
+  raw       = "factoryai-staging-raw"
+  datasets  = "factoryai-staging-datasets"
+  artifacts = "factoryai-staging-artifacts"
+  heatmaps  = "factoryai-staging-heatmaps"
+}
+
+ecr_repository_name = "factoryai/api"
+secret_name          = "factoryai/staging/app"
+
+tags = {
+  Project     = "factoryai"
+  Environment = "staging"
+}

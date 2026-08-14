@@ -112,6 +112,30 @@ class TestIngestionSettings:
         assert settings.ingestion.allowed_formats == ("png", "jpeg", "bmp")
 
 
+class TestApiSettings:
+    def test_cors_origins_split_from_a_comma_separated_env_var(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression test (Phase 14, ADR-0017).
+
+        A real Kubernetes ConfigMap-supplied env var crash-looped the pod on this exact
+        field before `cors_origins` got the same `NoDecode` annotation
+        `IngestionSettings`'s tuple fields already carry — without it, pydantic-settings
+        tried to JSON-decode the raw string itself before this class's own
+        `mode="before"` validator ever ran.
+        """
+        monkeypatch.setenv("API_CORS_ORIGINS", "http://localhost:3000, http://localhost:5173")
+        settings = Settings(_env_file=None)
+        assert settings.api.cors_origins == ("http://localhost:3000", "http://localhost:5173")
+
+    def test_cors_origins_accepts_a_single_origin_env_var(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("API_CORS_ORIGINS", "http://localhost:3000")
+        settings = Settings(_env_file=None)
+        assert settings.api.cors_origins == ("http://localhost:3000",)
+
+
 class TestStorageSettings:
     def test_remote_backend_requires_an_access_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("STORAGE_BACKEND", "s3")

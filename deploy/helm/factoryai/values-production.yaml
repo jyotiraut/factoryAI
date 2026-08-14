@@ -1,0 +1,69 @@
+# Overrides layered on top of values.yaml for production: real managed backing services
+# only (no bundled Postgres/Redis/MinIO — those templates simply don't render when
+# `enabled: false`), higher replica floors and stricter resource limits, TLS required.
+
+image:
+  repository: "REPLACE_WITH_ECR_REPOSITORY_URL"
+  tag: "REPLACE_WITH_IMAGE_TAG"
+  pullPolicy: IfNotPresent
+
+api:
+  replicaCount: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercent: 65
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+worker:
+  replicaCount: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: factoryai.example.com
+  tls:
+    enabled: true
+    secretName: factoryai-production-tls
+
+postgresql:
+  enabled: false
+  external:
+    host: "REPLACE_WITH_RDS_ENDPOINT"
+    port: 5432
+
+redis:
+  enabled: false
+  external:
+    host: "REPLACE_WITH_ELASTICACHE_ENDPOINT"
+    port: 6379
+
+minio:
+  enabled: false
+  external:
+    endpoint: "https://s3.eu-central-1.amazonaws.com"
+
+mlflow:
+  enabled: false
+  external:
+    trackingUri: "REPLACE_WITH_SHARED_MLFLOW_URL"

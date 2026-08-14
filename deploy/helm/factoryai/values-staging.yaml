@@ -1,0 +1,48 @@
+# Overrides layered on top of values.yaml for a staging environment: real image tags from
+# CI, an external database/cache/object-store/registry (provisioned by
+# `deploy/terraform/environments/aws`), TLS on the ingress. Secrets are deliberately left
+# unset here — supplied at deploy time via `--set` from CI secrets or an external-secrets
+# operator, never committed to this file.
+
+image:
+  repository: "REPLACE_WITH_ECR_REPOSITORY_URL"
+  tag: "REPLACE_WITH_IMAGE_TAG"
+  pullPolicy: IfNotPresent
+
+api:
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+
+worker:
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: nginx
+  host: staging.factoryai.example.com
+  tls:
+    enabled: true
+    secretName: factoryai-staging-tls
+
+postgresql:
+  enabled: false
+  external:
+    host: "REPLACE_WITH_RDS_ENDPOINT"
+    port: 5432
+
+redis:
+  enabled: false
+  external:
+    host: "REPLACE_WITH_ELASTICACHE_ENDPOINT"
+    port: 6379
+
+minio:
+  enabled: false
+  external:
+    endpoint: "https://s3.eu-central-1.amazonaws.com"
+
+mlflow:
+  enabled: true

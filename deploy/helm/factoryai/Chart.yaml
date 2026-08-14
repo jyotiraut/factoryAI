@@ -1,0 +1,15 @@
+apiVersion: v2
+name: factoryai
+description: >-
+  FactoryAI industrial visual inspection platform — API, worker, and (for a self-contained
+  kind/demo install) bundled Postgres, Redis, MinIO and MLflow.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - mlops
+  - inference
+  - anomaly-detection
+home: https://github.com/factoryai/factoryai
+maintainers:
+  - name: factoryai

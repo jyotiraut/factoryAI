@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "factoryai.fullname" . }}-worker
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "worker") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # `--pool=prefork`, not the CLI's Windows-only `solo` default (see `cli.py`'s
+          # own `worker` command docstring) — this container is always Linux, so the real
+          # multi-process pool is what a K8s deployment should actually run.
+          args:
+            - worker
+            - --queues={{ .Values.worker.queues }}
+            - --pool=prefork
+          envFrom:
+            - configMapRef:
+                name: {{ include "factoryai.fullname" . }}-config
+            - secretRef:
+                name: {{ include "factoryai.fullname" . }}-secrets
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - factoryai.worker.celery_app
+                - inspect
+                - ping
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
