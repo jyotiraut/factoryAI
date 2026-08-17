@@ -20,6 +20,7 @@ htmlcov/
 
 # Data & artifacts (tracked by DVC, not Git)
 data/
+/test/
 datasets/**/*.png
 datasets/**/*.jpg
 !datasets/**/*.dvc

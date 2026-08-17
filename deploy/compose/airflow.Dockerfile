@@ -28,8 +28,13 @@ COPY --chown=airflow:root src /tmp/factoryai/src
 # imports `Argon2PasswordHasher`/`JwtTokenService` at module level (unlike the ML
 # libraries, which it imports lazily inside cached_property methods — see that module's
 # own docstring), so importing `Container` at all needs `argon2-cffi`/`pyjwt` installed.
+# `monitoring` (evidently) is required for the same reason: `Container.drift_detector`
+# imports `EvidentlyDriftDetector` lazily, but `monitoring_dag`'s own `check_drift` task
+# always reaches it — found live (this session) via `check_drift` failing every single run
+# with `ModuleNotFoundError: No module named 'evidently'`, never caught by any prior test
+# since nothing exercises `pipeline_runner drift-report` through this specific venv.
 RUN /opt/factoryai-venv/bin/pip install --no-cache-dir \
-    "/tmp/factoryai[storage,imaging,versioning,ml,auth]"
+    "/tmp/factoryai[storage,imaging,versioning,ml,auth,monitoring]"
 
 # `git` is required by `DvcGitVersionControl` (`current_commit`/`track_and_push` shell out
 # to it) — placed in its own layer after the pip install rather than folded into the first
