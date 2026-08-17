@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 import type {
   CurrentUser,
   DatasetVersionItem,
@@ -10,6 +10,7 @@ import type {
   ModelVersionItem,
   Page,
   PredictionHistoryItem,
+  PredictionResponse,
   SystemHealth,
   TokenResponse,
   TrainingRunItem,
@@ -92,4 +93,11 @@ export function getDefectTrend(category: string, days = 30): Promise<DefectTrend
 
 export function getSystemHealth(): Promise<SystemHealth> {
   return apiRequest<SystemHealth>("/system/health");
+}
+
+export function predictImage(category: string, image: File): Promise<PredictionResponse> {
+  const form = new FormData();
+  form.set("category", category);
+  form.set("image", image);
+  return apiUpload<PredictionResponse>("/predict", form);
 }

@@ -114,3 +114,45 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
+
+/**
+ * `/predict` takes `multipart/form-data`, not JSON — a separate function rather than
+ * teaching `apiRequest` a body-type union, since every other endpoint in this app is JSON
+ * and the browser must set the multipart boundary itself (an explicit `Content-Type`
+ * header here would omit it and the backend would fail to parse the form).
+ */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const url = buildUrl(path);
+  const doFetch = (token: string | null) =>
+    fetch(url, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: form,
+    });
+
+  let response = await doFetch(getAccessToken());
+
+  if (response.status === 401 && getRefreshToken()) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      response = await doFetch(newToken);
+    } else {
+      onSessionExpired?.();
+      throw new ApiError(401, "session expired");
+    }
+  }
+
+  if (response.status === 401) {
+    onSessionExpired?.();
+  }
+
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((body: { detail?: string }) => body.detail)
+      .catch(() => undefined);
+    throw new ApiError(response.status, detail ?? response.statusText);
+  }
+
+  return (await response.json()) as T;
+}
