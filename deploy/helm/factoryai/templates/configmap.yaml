@@ -8,6 +8,10 @@ metadata:
   labels:
     {{- include "factoryai.labels" . | nindent 4 }}
 data:
+  # See `deploy/docker/factoryai.Dockerfile`'s own comment: the image's `configs/` copy
+  # is at `/app/configs`, not wherever `Settings.config_dir`'s `__file__`-derived default
+  # would otherwise land inside `site-packages`.
+  FACTORYAI_CONFIG_DIR: /app/configs
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   LOG_FORMAT: {{ .Values.config.logFormat | quote }}
   API_HOST: "0.0.0.0"

@@ -59,9 +59,27 @@ is a static value an operator tunes by hand until that adapter exists.
 
 `deploy/loadtest/locustfile.py` drives the mix a real operator session actually produces:
 mostly reads (`/health/live`, `/models`, `/predictions`), occasionally a real `/predict`
-call. See that file's own docstring for how to run it, and ADR-0017's "Live verification"
-section for what a real run against this environment did and did not confirm — a
-short local run exercised the health/models/predictions paths successfully; `/predict`
-specifically could not be driven end-to-end in this sandbox for the same reason a live
-Postgres connection from the host could not be established elsewhere in this session (see
-ADR-0014/ADR-0016), not a defect in the load test itself.
+call. See that file's own docstring for how to run it.
+
+Two things were actually measured against the live kind cluster from Phase 14's
+verification, and they are not the same kind of evidence:
+
+**Clean single-request latencies (trustworthy)** — `curl -w "%{time_total}s"` against
+`factoryai-api` through a fresh `kubectl port-forward`, one request at a time, no
+concurrency: `GET /models` 22ms, `GET /predictions` 50ms, `GET /health/live` 346ms,
+`GET /health/ready` 112ms. All comfortably inside the budgets above, on the very first
+warm request against a freshly-migrated database with real data in it — this is real
+signal about the app's per-request cost.
+
+**Concurrent Locust runs (inconclusive, not a capacity finding)** — two attempts (10
+users/45s, then 3 users/40s) against `http://localhost:8000` via `kubectl port-forward`
+both showed 83–94% failure rates, almost entirely `ConnectionRefusedError` /
+`RemoteDisconnected`. The port-forward process's own log (not the app's) recorded the
+cause directly: `"error occurred forwarding 8000 -> 8000: ... read: connection reset by
+peer"` and `"lost connection to pod"`. `kubectl port-forward` is a single-TCP-tunnel
+debugging aid, not a load-balanced data path — it is well known to drop under even light
+concurrency, independent of whether the backend is healthy. These failure rates say
+nothing about `factoryai-api`'s real concurrent capacity and should not be read as one.
+A trustworthy concurrent load test would need to run from inside the cluster (a Locust
+pod hitting the `Service`/`Ingress` directly) or through a real ingress from outside —
+not yet done, tracked as follow-up work, not a finding about the app.

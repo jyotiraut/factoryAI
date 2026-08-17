@@ -1,0 +1,33 @@
+# Applies the application's own Alembic migrations before any api/worker pod can do
+# anything useful — found live (Phase 14, ADR-0017): the api pod passed its `/health/live`
+# check happily against a schema-less database and only failed `/health/ready` once it
+# tried a real query. `env.py` reads its target DSN from the exact same `POSTGRES_*` env
+# vars every other container in this chart gets (`shared/config.py`'s `Settings`), so this
+# Job needs nothing beyond the app's own image and that env.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "factoryai.fullname" . }}-migrate
+  labels:
+    {{- include "factoryai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "-c", "database/alembic.ini", "upgrade", "head"]
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: {{ include "factoryai.fullname" . }}-config
+            - secretRef:
+                name: {{ include "factoryai.fullname" . }}-secrets

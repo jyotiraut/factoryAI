@@ -951,7 +951,7 @@ inside Airflow, not Phase 6's already-tested promotion gate).
 
 ---
 
-## Phase 14 — Kubernetes, cloud and CI/CD hardening
+## Phase 14 — Kubernetes, cloud and CI/CD hardening *(complete)*
 
 **Goal:** deployable beyond a laptop.
 
@@ -967,6 +967,52 @@ inside Airflow, not Phase 6's already-tested promotion gate).
 **Exit criteria**
 - `helm install factoryai` brings up the full stack on a kind cluster.
 - A failing test or a HIGH/CRITICAL CVE blocks the pipeline.
+
+**Delivered.** ADR-0017 records the design in full; summary of what actually shipped:
+
+- One Docker image (`deploy/docker/factoryai.Dockerfile`) for both the api and worker
+  Deployments — they need the identical `ml` extras (`anomalib`/`torch`) anyway, so a split
+  image would duplicate the single most expensive build layer for no isolation benefit.
+  Additional to, not a replacement for, ADR-0013's host-based `docker compose` target.
+- `deploy/helm/factoryai/`: a full chart (api/worker Deployments + HPA + PDB, Services,
+  Ingress, ConfigMap/Secret, and bundled Postgres/Redis/MinIO/MLflow sub-templates for dev),
+  plus `values-staging.yaml`/`values-production.yaml` overlays pointing at external managed
+  services. A hook-weight `-1` post-install/post-upgrade Job runs the app's own Alembic
+  migrations before anything else, reusing `database/migrations/env.py`'s existing
+  env-driven DSN resolution — no new config needed.
+- `deploy/terraform/`: four cloud-agnostic modules (object storage, managed Postgres,
+  container registry, secrets) plus an AWS reference root module, assuming an existing
+  VPC/subnets rather than provisioning networking.
+- `.github/workflows/cd.yml`: build → Trivy image scan (HIGH/CRITICAL, exit-code 1) → SBOM
+  (SPDX, `anchore/sbom-action`) → push to `ghcr.io` → staging deploy → smoke tests →
+  `environment: production`'s own required-reviewers gate → production deploy.
+- `deploy/loadtest/locustfile.py` and `docs/CAPACITY.md`: a weighted-mix load test script
+  and a documented per-pod resource footprint, latency budget table, and autoscaling
+  rationale (including the worker's lack of an HPA — a real, disclosed gap needing a
+  custom-metrics adapter that does not exist yet).
+- **Live-verified on a real kind cluster**, matching the pattern every phase since Phase 10
+  has followed: `helm install` brought the entire stack (api ×2, worker ×2, postgresql,
+  redis, minio, mlflow) to `1/1 Running`, and a real HTTP round trip confirmed
+  `/health/ready` reporting `{"status":"ok","checks":{"database":true,"model_registry":
+  true}}`. Three real, previously-latent bugs were found and fixed this way — none
+  catchable by an existing unit test, since each only surfaces once a real packaged
+  container reads real env vars rather than a test constructing `Settings` directly: a
+  `cors_origins` JSON-decode crash-loop (missing `NoDecode`, same pattern
+  `IngestionSettings` already used), a missing `configs/` directory (the same
+  `__file__`-derived `REPO_ROOT` class of bug Phase 12 already hit and fixed elsewhere),
+  and no automated schema migration (fixed by adding the `migrate.yaml` hook Job). A real
+  operator user was created and logged in through the live cluster, returning real JWT
+  tokens. Clean non-concurrent `curl` timing checks came back well within budget
+  (`/models` 22ms, `/predictions` 50ms, `/health/ready` 112ms); two Locust runs against the
+  same cluster showed 83–94% failure rates traced to `kubectl port-forward`'s own
+  connection instability under concurrency (confirmed via its log, not the app's) — real,
+  disclosed test-harness noise, not an app defect, and recorded as such in
+  `docs/CAPACITY.md` rather than presented as a capacity finding. A real Trivy scan of the
+  built image found 6 CRITICAL CVEs, all in `mlflow==2.22.5` (fixed only in `mlflow>=3.x`,
+  a separately-scoped major-version migration) — exactly the class of finding `cd.yml`'s
+  own gate is built to block, disclosed and tracked as follow-up rather than rushed into
+  this phase. Terraform validated cleanly (`fmt`/`init -backend=false`/`validate`) against
+  no real AWS credentials, the verification ceiling reachable in this environment.
 
 ---
 

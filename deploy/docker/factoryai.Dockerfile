@@ -29,6 +29,23 @@ COPY src ./src
 RUN pip install --no-cache-dir \
     ".[storage,imaging,versioning,ml,api,auth,worker,monitoring]"
 
+# `Settings.config_dir` (`shared/config.py`) defaults to `REPO_ROOT / "configs"`, where
+# `REPO_ROOT` is `__file__`-derived — correct for an editable host install (ADR-0013's own
+# deployment target), meaningless once `factoryai` is a regular `site-packages` install
+# with no `configs/` anywhere nearby. Copying it in and overriding `FACTORYAI_CONFIG_DIR`
+# (already a plain env-var-overridable `Settings` field, no code change needed) is the same
+# fix Phase 12 already applied to the identical class of bug in `bootstrap.container.
+# _REPO_ROOT` (`FACTORYAI_REPO_ROOT`, ADR-0015) — found live here the same way, a pod that
+# started but failed `/health/ready` with "category configuration not found".
+COPY configs ./configs
+ENV FACTORYAI_CONFIG_DIR=/app/configs
+
+# `database/migrations` (Alembic) reads its target DSN from `get_settings().database.dsn`
+# (`database/migrations/env.py`), the same env-driven `Settings` everything else uses — so
+# the migration Job the Helm chart runs against this image needs nothing beyond this
+# directory and the `POSTGRES_*` env vars every other container in the chart already gets.
+COPY database ./database
+
 USER factoryai
 ENV API_HOST=0.0.0.0 \
     API_PORT=8000
