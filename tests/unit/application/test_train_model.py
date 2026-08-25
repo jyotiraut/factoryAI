@@ -193,6 +193,26 @@ class TestSuccessfulRun:
         assert production is None
         assert result.registry_version in registry.list_versions(name=result.registry_name)
 
+    async def test_a_threshold_override_reaches_the_detector(self, tmp_path: Path) -> None:
+        uow = FakeUnitOfWork()
+        object_store = FakeObjectStore()
+        await _seed_version(uow, object_store)
+        use_case, detector, _, _ = _use_case(uow=uow, object_store=object_store, workdir=tmp_path)
+
+        await use_case.execute(_command(threshold_override=35.0))
+
+        assert detector.fitted_requests[0].threshold_override == 35.0
+
+    async def test_no_override_by_default(self, tmp_path: Path) -> None:
+        uow = FakeUnitOfWork()
+        object_store = FakeObjectStore()
+        await _seed_version(uow, object_store)
+        use_case, detector, _, _ = _use_case(uow=uow, object_store=object_store, workdir=tmp_path)
+
+        await use_case.execute(_command())
+
+        assert detector.fitted_requests[0].threshold_override is None
+
 
 class TestFailedRun:
     async def test_a_failed_fit_records_a_failed_experiment_and_reraises(
@@ -245,6 +265,11 @@ class TestConfigHash:
         second = _command(hyperparameters={"coreset_sampling_ratio": 0.2})
         assert first.config_hash() != second.config_hash()
 
+    def test_changes_with_a_threshold_override(self) -> None:
+        first = _command(threshold_override=None)
+        second = _command(threshold_override=35.0)
+        assert first.config_hash() != second.config_hash()
+
 
 class TestLoadTrainingConfig:
     def test_parses_a_minimal_config(self, tmp_path: Path) -> None:
@@ -285,4 +310,18 @@ class TestLoadTrainingConfig:
         assert command.backbone is None
         assert command.image_size == (256, 256)
         assert command.seed == 42
+        assert command.threshold_override is None
+
+    def test_parses_a_threshold_override(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "patchcore.yaml"
+        config_path.write_text(
+            "dataset_name: bottle\ndataset_version_tag: bottle-v1\ncategory: bottle\n"
+            "model:\n  name: patchcore\n"
+            "threshold_override: 35.0\n",
+            encoding="utf-8",
+        )
+
+        command = load_training_config(config_path)
+
+        assert command.threshold_override == 35.0
         assert command.device == "auto"

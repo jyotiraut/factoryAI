@@ -128,7 +128,18 @@ class AnomalibDetector(AnomalyDetector):
         self._model = model
         # anomalib's own attribute typing resolves `image_threshold` too loosely for mypy
         # to follow (a torchmetrics Metric subclass, not a plain Tensor).
-        threshold = float(model.image_threshold.value.item())  # type: ignore[operator]
+        calibrated_threshold = float(model.image_threshold.value.item())  # type: ignore[operator]
+        # `threshold_override`, when supplied, replaces Anomalib's pooled-F1 calibration
+        # outright — see `TrainingRequest.threshold_override`'s own docstring for why a
+        # pooled-optimal threshold can under-serve one defect type. Evaluating at the
+        # override (not the calibrated value) is what makes the registered model's
+        # `metrics.recall`/`precision` describe what actually gets served, not a value
+        # computed at a threshold nothing at inference time uses.
+        threshold = (
+            request.threshold_override
+            if request.threshold_override is not None
+            else calibrated_threshold
+        )
         self._threshold = threshold
 
         result_row = test_results[0] if test_results else {}

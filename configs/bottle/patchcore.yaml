@@ -16,3 +16,14 @@ image_size: 256x256
 seed: 42
 device: auto
 note: "Default PatchCore run for the bottle category."
+
+# Anomalib's own F1-adaptive calibration optimises F1 across every defect type pooled
+# together — live dashboard verification (Phase 14) found this left `production` v1
+# (threshold 43.64) missing 5/21 `contamination` defects while catching 100% of
+# `broken_large`/`broken_small`, because contamination's anomaly scores run systematically
+# lower than structural breaks. A sweep against that same labeled evaluation set found
+# every threshold in (28.82, 40.16) gives zero false positives AND zero false negatives —
+# max observed score on 241 real "good" bottle images was 28.82; min score on any real
+# defect (of any type) was 40.16. Uncomment to use it on the next retrain instead of
+# trusting the pooled calibration blindly:
+# threshold_override: 35.0

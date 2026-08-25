@@ -74,6 +74,14 @@ class TrainingRequest:
         device: ``"auto"``, ``"cpu"`` or ``"cuda"``.
         hyperparameters: Model-family-specific configuration.
         ground_truth_dir: Segmentation masks, when available, for pixel-level metrics.
+        threshold_override: A manually supplied decision boundary, replacing Anomalib's own
+            F1-adaptive calibration. That calibration optimises F1 across every defect type
+            pooled together, which can quietly under-serve a defect type whose anomaly
+            scores run systematically lower than the others in the same test set — found
+            live (Phase 14 dashboard verification) when a production bottle model missed
+            5 of 21 `contamination` defects while catching 100% of `broken_large`/
+            `broken_small`, all five misses scoring just under the pooled-optimal
+            threshold. ``None`` (the default) keeps Anomalib's own calibration untouched.
     """
 
     train_dir: Path
@@ -82,6 +90,7 @@ class TrainingRequest:
     seed: int
     device: str = "auto"
     hyperparameters: dict[str, Any] = field(default_factory=dict)
+    threshold_override: float | None = None
     ground_truth_dir: Path | None = None
 
 

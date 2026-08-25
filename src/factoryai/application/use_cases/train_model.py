@@ -66,6 +66,11 @@ class TrainModelCommand:
         device: ``"auto"``, ``"cpu"`` or ``"cuda"``.
         note: Optional free-text description of this run.
         started_by: The user launching the run; absent for an automated trigger.
+        threshold_override: A manually chosen decision boundary, replacing the detector's
+            own auto-calibration — see ``TrainingRequest.threshold_override`` for why a
+            pooled-across-defect-types calibration can under-serve one defect type. Left
+            unset by default; supplying it is a deliberate, evidence-backed operator
+            decision, not something a training config should default to.
     """
 
     dataset_name: str
@@ -79,6 +84,7 @@ class TrainModelCommand:
     device: str = "auto"
     note: str = ""
     started_by: UserId | None = None
+    threshold_override: float | None = None
 
     def config_hash(self) -> str:
         """Return a stable fingerprint of every field that determines training's outcome.
@@ -95,6 +101,7 @@ class TrainModelCommand:
             "hyperparameters": self.hyperparameters,
             "image_size": list(self.image_size),
             "seed": self.seed,
+            "threshold_override": self.threshold_override,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -147,6 +154,7 @@ def load_training_config(path: Path) -> TrainModelCommand:
         seed=raw.get("seed", 42),
         device=raw.get("device", "auto"),
         note=raw.get("note", ""),
+        threshold_override=raw.get("threshold_override"),
     )
 
 
@@ -265,6 +273,7 @@ class TrainModel:
             seed=command.seed,
             device=command.device,
             hyperparameters=command.hyperparameters,
+            threshold_override=command.threshold_override,
         )
 
         git_commit = await self._version_control.current_commit()
