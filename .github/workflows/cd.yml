@@ -35,6 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `ubuntu-latest` ships ~20GB of preinstalled toolchains this project never touches
+      # (.NET, the Android SDK, GHC, CodeQL) — found live, second real disk-space failure
+      # in a row even after pinning CPU-only torch (previous commit): the build itself
+      # succeeded, but Trivy's own image scan needs to export a second, full copy of the
+      # image to a tarball to scan it, and by then free space was down to 53MB. Freeing
+      # this unused space before the build gives both the build AND the scan enough room.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Determine image tag
         id: image-ref
         # `${VAR,,}` lowercases `IMAGE_NAME` — never skip this: `github.repository` is
