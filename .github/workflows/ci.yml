@@ -119,8 +119,29 @@ jobs:
         # `--system`, or uv silently falls back to the runner's externally-managed 3.12.
         run: uv pip install --system --python ${{ env.PYTHON_VERSION }} --break-system-packages -e ".[dev,storage,imaging,versioning,ml,api,auth,worker,monitoring,test-infra]"
 
-      - name: Run unit + integration tests with coverage
-        run: pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
+      - name: Run unit + integration tests
+        # `coverage run -m pytest`, not `pytest --cov=...`: pytest-cov's own plugin
+        # automatically calls `combine()` at teardown to support subprocess coverage, and
+        # that crashed with `coverage.exceptions.DataError: Can't combine statement
+        # coverage data with branch data` on every real run — confirmed twice, live, with
+        # the actual test suite passing cleanly underneath it both times (643 passed, 9
+        # skipped). The crash is a coverage-tooling artifact, not a test failure, but it
+        # exits nonzero and would otherwise fail this job for a reason that has nothing to
+        # do with correctness. Not root-caused further (one real, worthwhile fix attempted
+        # — a subprocess inheriting `COVERAGE_PROCESS_START` and auto-starting coverage
+        # against a different `cwd` — did not resolve this specific crash). `coverage run`
+        # measures coverage directly, without pytest-cov's plugin or its automatic
+        # combine step, so this line's own exit code is purely pytest's real result.
+        run: coverage run -m pytest -m "unit or integration"
+
+      - name: Report coverage
+        # Best-effort only, deliberately `|| true`: reporting, not a correctness gate —
+        # the actual test gate is the step above, which already exited by the time this
+        # runs. See that step's own comment for why combining/reporting is isolated here.
+        if: always()
+        run: |
+          coverage xml || true
+          coverage report --show-missing || true
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
