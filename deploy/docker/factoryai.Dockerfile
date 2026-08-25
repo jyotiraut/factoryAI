@@ -47,8 +47,17 @@ COPY src ./src
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
     "torch>=2.2,<3" "torchvision>=0.17,<1"
 
+# `setuptools>=78.1.1`/`msgpack>=1.2.1`: this project's own `uv.lock` already pins fixed
+# versions of both (msgpack is a real, resolved transitive dependency there), but plain
+# `pip install` here does its own independent resolution from `pyproject.toml`'s ranges,
+# ignoring the lockfile entirely — so the image can and did drift to older, vulnerable
+# versions (setuptools 70.3.0, msgpack 1.1.2) than what's actually verified elsewhere.
+# Explicit floor constraints in the same resolve pass, not a separate later upgrade step
+# (tried first; something in this same extras set re-resolved setuptools back down when
+# it ran afterward, so it has to be part of this one pip invocation to actually stick).
 RUN pip install --no-cache-dir \
-    ".[storage,imaging,versioning,ml,api,auth,worker,monitoring]"
+    ".[storage,imaging,versioning,ml,api,auth,worker,monitoring]" \
+    "setuptools>=78.1.1" "msgpack>=1.2.1"
 
 # `Settings.config_dir` (`shared/config.py`) defaults to `REPO_ROOT / "configs"`, where
 # `REPO_ROOT` is `__file__`-derived — correct for an editable host install (ADR-0013's own
