@@ -16,9 +16,13 @@ spec:
       labels:
         {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "redis") | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "factoryai.podSecurityContext" . | nindent 8 }}
       containers:
         - name: redis
           image: {{ .Values.redis.image }}
+          securityContext:
+            {{- include "factoryai.containerSecurityContext" . | nindent 12 }}
           ports:
             - name: redis
               containerPort: 6379

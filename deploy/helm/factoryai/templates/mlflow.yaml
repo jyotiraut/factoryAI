@@ -56,9 +56,13 @@ spec:
       labels:
         {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "mlflow") | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "factoryai.podSecurityContext" . | nindent 8 }}
       containers:
         - name: mlflow
           image: {{ .Values.mlflow.image }}
+          securityContext:
+            {{- include "factoryai.containerSecurityContext" . | nindent 12 }}
           command:
             - mlflow
             - server

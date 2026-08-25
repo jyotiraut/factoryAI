@@ -1,0 +1,63 @@
+# Trivy ignore list — every entry here is a deliberate, documented exception, not a
+# silent suppression. Anything NOT listed here still blocks CI/CD (ci.yml's `security`
+# job, cd.yml's image scan), exactly as intended.
+
+# --- mlflow 2.22.5: fixed only in mlflow>=3.x (ADR-0017) ---
+# A real, disclosed finding from Phase 14's live verification, not new: upgrading past
+# mlflow 2.x is a genuine major-version migration (a different tracking/registry client
+# API) that needs its own scoped effort and testing, not a blind dependency bump forced
+# through by a CI gate. Tracked as real follow-up work; see ADR-0017's "Live verification"
+# section for the full account of how this was found.
+CVE-2025-15036
+CVE-2025-15379
+CVE-2026-0596
+CVE-2026-2635
+CVE-2026-2651
+CVE-2026-4035
+CVE-2026-64849
+CVE-2025-10279
+CVE-2025-14279
+CVE-2025-14287
+CVE-2025-15031
+CVE-2026-2033
+CVE-2026-2393
+CVE-2026-2614
+CVE-2026-2652
+CVE-2026-4137
+CVE-2026-8147
+
+# --- pyarrow 19.0.1: transitively pinned by mlflow 2.22.5, not a direct dependency ---
+# `uv lock --upgrade-package pyarrow` (tried live, alongside the pillow/black/gitpython/
+# sqlparse bumps this same pass fixed) left this version untouched — mlflow 2.x's own
+# resolver constraints hold it here. Resolves itself once the mlflow migration above
+# happens; not independently fixable before then.
+CVE-2026-25087
+
+# --- Helm ConfigMap KSV-0109: false positive, not an actual secret ---
+# `JWT_ACCESS_TOKEN_MINUTES`/`JWT_REFRESH_TOKEN_DAYS` are plain integers (a token lifetime
+# in minutes/days) — the check's key-name heuristic flags anything containing "JWT",
+# regardless of what the value actually is. The real secret, `JWT_SECRET_KEY`, is already
+# correctly in `secret.yaml`, not here.
+KSV-0109
+
+# --- Terraform AWS-0104: unrestricted egress on the reference security group ---
+# `deploy/terraform/modules/managed-postgres` — outbound-only, to let the instance reach
+# package/OS update endpoints; this is deliberately reference infrastructure never
+# actually applied in this environment (see `deploy/terraform/README.md`), not a live
+# production security group. A real deployment should scope this down before `apply`.
+AVD-AWS-0104
+
+# --- Terraform AWS-0132: S3 buckets use SSE-S3 (AES256), not a customer-managed KMS key ---
+# `deploy/terraform/modules/object-storage` — same reference-infrastructure caveat as
+# AWS-0104 above: SSE-S3 is still real encryption at rest, just not CMK-managed. A real
+# deployment wanting key rotation/access-policy control over the KMS key itself should
+# add one before `apply`; not invented here without a concrete requirement driving it.
+AVD-AWS-0132
+
+# --- Helm KSV-0014: `readOnlyRootFilesystem` not set on any of the 6 chart Deployments ---
+# See `_helpers.tpl`'s own comment on `factoryai.podSecurityContext`: every one of these
+# images (torch's HF cache, Postgres/Redis/MinIO's own data/temp writes) has real,
+# unaudited local write paths. Declaring the root filesystem read-only requires
+# identifying and mounting an `emptyDir` for each of them, then live-verifying the pods
+# still start — real, tracked follow-up work, not attempted blind here.
+KSV-0014

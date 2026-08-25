@@ -39,7 +39,7 @@ storage = [
 ]
 # Phase 3 — image handling and validation
 imaging = [
-    "pillow>=10.4,<12",
+    "pillow>=12.3,<13",
     "imagehash>=4.3,<5",
     "numpy>=1.26,<2",
 ]
@@ -88,7 +88,7 @@ monitoring = [
 
 dev = [
     "ruff>=0.6,<1",
-    "black>=24.8,<26",
+    "black>=26.3,<27",
     "mypy>=1.11,<2",
     "import-linter>=2.0,<3",
     "pre-commit>=3.8,<5",

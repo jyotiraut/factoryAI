@@ -68,3 +68,28 @@ http://{{ include "factoryai.fullname" . }}-mlflow:5000
 {{ required "mlflow.external.trackingUri is required when mlflow.enabled is false" .Values.mlflow.external.trackingUri }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Pod-level securityContext, shared by every Deployment in this chart. Found live (Phase 14
+CI hardening): Trivy's `KSV-0118` flags a pod with no explicit securityContext as "using
+the default security context, which allows root privileges" — true regardless of whether
+the underlying image already drops root (every image here does), since Kubernetes itself
+has no way to know that without being told. Not `readOnlyRootFilesystem` here (`KSV-0014`)
+— every one of these images (torch's HF cache, Postgres/Redis/MinIO's own data/temp
+writes) has real, unaudited local write paths; declaring the root filesystem read-only
+without first identifying and mounting an `emptyDir` for each of them would need live
+verification this phase doesn't have the runway for. Tracked, not silently dropped — see
+`.trivyignore`'s own comment on `KSV-0014`.
+*/}}
+{{- define "factoryai.podSecurityContext" -}}
+runAsNonRoot: true
+{{- end -}}
+
+{{/*
+Container-level securityContext, shared alongside the pod-level context above.
+*/}}
+{{- define "factoryai.containerSecurityContext" -}}
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+{{- end -}}

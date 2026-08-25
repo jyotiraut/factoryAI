@@ -35,9 +35,13 @@ spec:
       labels:
         {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "postgresql") | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "factoryai.podSecurityContext" . | nindent 8 }}
       containers:
         - name: postgresql
           image: {{ .Values.postgresql.image }}
+          securityContext:
+            {{- include "factoryai.containerSecurityContext" . | nindent 12 }}
           ports:
             - name: postgresql
               containerPort: 5432

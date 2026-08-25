@@ -31,9 +31,13 @@ spec:
       labels:
         {{- include "factoryai.selectorLabels" (dict "Chart" .Chart "Release" .Release "component" "minio") | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "factoryai.podSecurityContext" . | nindent 8 }}
       containers:
         - name: minio
           image: {{ .Values.minio.image }}
+          securityContext:
+            {{- include "factoryai.containerSecurityContext" . | nindent 12 }}
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER

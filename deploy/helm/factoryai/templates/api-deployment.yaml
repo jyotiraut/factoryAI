@@ -21,10 +21,14 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- include "factoryai.podSecurityContext" . | nindent 8 }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "factoryai.containerSecurityContext" . | nindent 12 }}
           args: ["serve"]
           ports:
             - name: http
