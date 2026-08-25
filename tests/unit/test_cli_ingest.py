@@ -41,7 +41,20 @@ def test_ingest_is_listed_in_the_top_level_help() -> None:
 
 
 def test_ingest_help_documents_its_options() -> None:
-    result = CliRunner().invoke(app, ["ingest", "--help"])
+    # Typer's `--help` renders through Rich, which makes its own, separate color/width
+    # decision from Click's own `CliRunner(color=False)` default — found live: this test
+    # passed locally (no ambient `FORCE_COLOR`) but failed in CI, where Rich detected color
+    # support and split literal option flags like `--report-path` across ANSI escape-code
+    # boundaries, breaking a plain substring check even though the option was rendered
+    # correctly on screen. `NO_COLOR` alone was not enough to reproduce a fix — Rich's
+    # `FORCE_COLOR` (set in some CI environments, e.g. by the runner itself) takes
+    # precedence unless explicitly overridden to a falsy value here too. `COLUMNS` forced
+    # wide as a second, independent safeguard against the options table wrapping.
+    result = CliRunner().invoke(
+        app,
+        ["ingest", "--help"],
+        env={"NO_COLOR": "1", "FORCE_COLOR": "0", "TERM": "dumb", "COLUMNS": "200"},
+    )
     assert result.exit_code == 0
     for option in ("--path", "--category", "--dataset", "--label", "--report-path"):
         assert option in result.stdout

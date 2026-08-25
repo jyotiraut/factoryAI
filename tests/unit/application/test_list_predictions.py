@@ -7,6 +7,7 @@ import uuid
 import pytest
 
 from factoryai.application.use_cases.list_predictions import ListPredictionsCommand
+from factoryai.domain.entities import Prediction
 from factoryai.domain.value_objects import ModelVersionId
 from tests.builders import NOW, a_prediction, an_image
 from tests.fakes import FakeUnitOfWork
@@ -15,9 +16,9 @@ from tests.use_case_factory import make_list_predictions_use_case
 pytestmark = pytest.mark.unit
 
 
-async def _add_prediction_with_image(uow: FakeUnitOfWork, **overrides: object) -> object:
+async def _add_prediction_with_image(uow: FakeUnitOfWork, **overrides: object) -> Prediction:
     """Seed a prediction and the image it references — the use case now resolves both."""
-    prediction = a_prediction(**overrides)  # type: ignore[arg-type]
+    prediction = a_prediction(**overrides)
     await uow.images.add(an_image(id=prediction.image_id))
     await uow.predictions.add(prediction)
     return prediction

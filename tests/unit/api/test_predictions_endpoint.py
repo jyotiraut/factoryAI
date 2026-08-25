@@ -7,14 +7,15 @@ from fastapi.testclient import TestClient
 from tests.builders import NOW, a_prediction, an_image, some_feedback
 from tests.unit.api.conftest import FakeContainer, bearer_header, build_test_app
 
+from factoryai.domain.entities import Prediction
 from factoryai.domain.value_objects import UserRole
 
 pytestmark = pytest.mark.unit
 
 
-async def _add_prediction_with_image(container: FakeContainer, **overrides: object) -> object:
+async def _add_prediction_with_image(container: FakeContainer, **overrides: object) -> Prediction:
     """Seed a prediction and the image it references — the endpoint now resolves both."""
-    prediction = a_prediction(**overrides)  # type: ignore[arg-type]
+    prediction = a_prediction(**overrides)
     await container.uow.images.add(an_image(id=prediction.image_id))
     await container.uow.predictions.add(prediction)
     return prediction
