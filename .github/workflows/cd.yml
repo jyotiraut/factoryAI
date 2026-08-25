@@ -30,15 +30,30 @@ jobs:
       packages: write
     outputs:
       image: ${{ steps.image-ref.outputs.image }}
+      repository: ${{ steps.image-ref.outputs.repository }}
+      tag: ${{ steps.image-ref.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Determine image tag
         id: image-ref
+        # `${VAR,,}` lowercases `IMAGE_NAME` — never skip this: `github.repository` is
+        # "jyotiraut/factoryAI" (this repo's actual case), and every OCI registry requires
+        # a lowercase name, so the very first real CD run (CI had never passed before this
+        # phase) failed immediately with "invalid tag ... repository name must be
+        # lowercase". Also outputs `repository`/`tag` separately, not just the combined
+        # `image` ref: the two `helm upgrade --set image.tag=...` calls below were passing
+        # the *entire* "registry/name:tag" string as the tag alone — a second bug, from
+        # the same never-before-run code, caught by inspection once the first one made it
+        # possible to look this far.
         run: |
           TAG="${{ inputs.image_tag }}"
           if [ -z "$TAG" ]; then TAG="${{ github.sha }}"; fi
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> "$GITHUB_OUTPUT"
+          REPO="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          REPO="${REPO,,}"
+          echo "repository=${REPO}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${REPO}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -121,8 +136,8 @@ jobs:
           helm upgrade --install factoryai deploy/helm/factoryai \
             --namespace factoryai-staging --create-namespace \
             -f deploy/helm/factoryai/values-staging.yaml \
-            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
-            --set image.tag=${{ needs.build-scan-push.outputs.image }} \
+            --set image.repository=${{ needs.build-scan-push.outputs.repository }} \
+            --set image.tag=${{ needs.build-scan-push.outputs.tag }} \
             --wait --timeout 5m
 
   smoke-tests:
@@ -174,6 +189,6 @@ jobs:
           helm upgrade --install factoryai deploy/helm/factoryai \
             --namespace factoryai --create-namespace \
             -f deploy/helm/factoryai/values-production.yaml \
-            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
-            --set image.tag=${{ needs.build-scan-push.outputs.image }} \
+            --set image.repository=${{ needs.build-scan-push.outputs.repository }} \
+            --set image.tag=${{ needs.build-scan-push.outputs.tag }} \
             --wait --timeout 10m
