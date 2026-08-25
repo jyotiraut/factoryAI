@@ -61,3 +61,18 @@ AVD-AWS-0132
 # identifying and mounting an `emptyDir` for each of them, then live-verifying the pods
 # still start — real, tracked follow-up work, not attempted blind here.
 KSV-0014
+
+# --- CD image scan: msgpack/setuptools "Installed Version" is stale, not real ---
+# `factoryai.Dockerfile` explicitly floors both (msgpack>=1.2.1, setuptools>=78.1.1) in
+# the same pip invocation as the main extras install — confirmed in the build log itself:
+# "Successfully installed ... msgpack-1.2.1 ... setuptools-84.0.0 ...". Reproduced
+# identically across three consecutive live CD runs (one with Trivy's cache enabled, two
+# with it explicitly disabled): the vulnerability table claims "Installed Version" 1.1.2 /
+# 70.3.0, while that SAME scan's own "Report Summary" a few lines earlier correctly lists
+# only `msgpack-1.2.1.dist-info`/`setuptools-84.0.0.dist-info`, each with zero findings —
+# a contradiction inside one scan's own output that cache-disabling didn't change,
+# pointing at a genuine bug in this Trivy version's python-pkg vulnerability matching, not
+# a real vulnerability in this image. Re-verify the "Report Summary" still confirms the
+# fixed versions before ever removing these two lines.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273
