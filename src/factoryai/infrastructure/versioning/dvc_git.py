@@ -12,6 +12,7 @@ loop.
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -102,9 +103,24 @@ class DvcGitVersionControl(VersionControl):
         """
         sibling = Path(sys.executable).parent / args[0]
         resolved = [str(sibling) if sibling.is_file() else args[0], *args[1:]]
+        # `dvc` is a Python console script (see this method's own docstring), so it starts
+        # its own interpreter — one that inherits `COVERAGE_PROCESS_START` from this very
+        # test run (pytest-cov sets it to support subprocess coverage) and, running against
+        # a *different* `cwd`, auto-starts coverage.py there without ever finding this
+        # project's `[tool.coverage.run] branch = true`. That mismatched data file is what
+        # made `coverage combine` crash the whole CI job with `DataError: Can't combine
+        # statement coverage data with branch data` — found live, first real integration
+        # run. `dvc`'s own internals were never meant to be measured anyway (`source =
+        # ["src/factoryai"]`), so stripping these is a pure fix, not a coverage loss.
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("COV_CORE_", "COVERAGE_"))}
         try:
             result = subprocess.run(
-                resolved, cwd=self._repo_root, capture_output=True, text=True, check=True
+                resolved,
+                cwd=self._repo_root,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
             )
         except FileNotFoundError as exc:
             raise InfrastructureError(
