@@ -26,6 +26,18 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 
+# CPU-only torch first, from PyTorch's own CPU wheel index, before the rest of the
+# extras: this image only ever does CPU inference (`PredictImage`'s `detector_factory`),
+# never GPU training, but pip's default index resolves a CUDA-enabled wheel bundling
+# several nvidia-cu13* packages regardless — found live (ADR-0017) as the reason this
+# image was 10.7GB on disk against 3.44GB of actual content, and later as the reason a
+# real CD build failed outright with "no space left on device" on a GitHub Actions
+# runner's default disk. The CPU wheel satisfies the exact same `torch>=2.2,<3` /
+# `torchvision>=0.17,<1` constraints `pyproject.toml` declares, so the subsequent extras
+# install below finds them already satisfied and never reaches for the default index.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    "torch>=2.2,<3" "torchvision>=0.17,<1"
+
 RUN pip install --no-cache-dir \
     ".[storage,imaging,versioning,ml,api,auth,worker,monitoring]"
 
