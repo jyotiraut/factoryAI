@@ -29,7 +29,13 @@ jobs:
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev]"
+        # `--system` alone targets whatever `python3` resolves to on the runner image
+        # (Ubuntu 24.04 ships an externally-managed 3.12, which then refuses the install
+        # outright per PEP 668) — it does NOT pick up the 3.11 `uv python install` just
+        # downloaded into uv's own toolchain above. `--python` is what actually selects
+        # that interpreter; found live (first real CI run this pipeline ever completed,
+        # after months of every push silently failing at this exact step unnoticed).
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev]"
 
       - name: Ruff
         run: ruff check --output-format=github src tests
@@ -58,7 +64,13 @@ jobs:
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev]"
+        # `--system` alone targets whatever `python3` resolves to on the runner image
+        # (Ubuntu 24.04 ships an externally-managed 3.12, which then refuses the install
+        # outright per PEP 668) — it does NOT pick up the 3.11 `uv python install` just
+        # downloaded into uv's own toolchain above. `--python` is what actually selects
+        # that interpreter; found live (first real CI run this pipeline ever completed,
+        # after months of every push silently failing at this exact step unnoticed).
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev]"
 
       - name: Run unit tests
         run: pytest -m unit
@@ -82,7 +94,9 @@ jobs:
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,storage,test-infra]"
+        # See the `quality` job's identical comment: `--python` is required alongside
+        # `--system`, or uv silently falls back to the runner's externally-managed 3.12.
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev,storage,test-infra]"
 
       - name: Run unit + integration tests with coverage
         run: pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
@@ -109,7 +123,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Was `@0.28.0` — no such tag exists (they're all `v`-prefixed, e.g. `v0.28.0`),
+        # so this job failed at "resolve action" before a single step ever ran. Found live
+        # via `gh api repos/aquasecurity/trivy-action/tags` against the real registry,
+        # not guessed; pinned to the newest published tag at the time of this fix.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig

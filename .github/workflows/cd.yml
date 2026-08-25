@@ -57,7 +57,9 @@ jobs:
       # already covers, since a base-image or installed-package CVE only exists once the
       # image is actually assembled.
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Was `@0.28.0` — no such tag exists (they're all `v`-prefixed); see ci.yml's
+        # identical comment on its own filesystem-scan step for how this was confirmed.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image-ref.outputs.image }}
           scanners: vuln
