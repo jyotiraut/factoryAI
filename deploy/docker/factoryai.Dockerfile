@@ -23,6 +23,15 @@ RUN apt-get update \
 RUN useradd --create-home --uid 10001 factoryai
 WORKDIR /app
 
+# `python:3.11-slim`'s own bootstrapped pip/setuptools/wheel bundle an old `jaraco.context`
+# (a setuptools install-time dependency) and an old `wheel` itself, both with HIGH CVEs
+# (path traversal via a malicious tar archive; arbitrary code execution via a malicious
+# wheel file) — found live via the CD pipeline's own Trivy image scan, once the two
+# disk-space failures blocking it got fixed enough to actually reach this point. Neither
+# package appears anywhere in this project's own `uv.lock`; upgrading the base image's
+# bootstrap tooling directly is the only way to clear them.
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
 COPY pyproject.toml README.md ./
 COPY src ./src
 
