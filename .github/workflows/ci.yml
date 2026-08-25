@@ -26,7 +26,14 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install ${{ env.PYTHON_VERSION }}
+        # The console scripts every subsequent bare-name tool invocation relies on
+        # (ruff/black/mypy/lint-imports/pytest) get installed into THIS interpreter's own
+        # bin directory by the next step's `--system --python` install — never on `PATH`
+        # by default. Found live as `exit code 127` ("command not found") on the CI run
+        # right after the install-step interpreter mismatch itself was fixed.
+        run: |
+          uv python install ${{ env.PYTHON_VERSION }}
+          echo "$(dirname "$(uv python find ${{ env.PYTHON_VERSION }})")" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         # Two real bugs, both found on the first CI run anyone actually watched: (1)
@@ -62,7 +69,10 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install ${{ env.PYTHON_VERSION }}
+        # See the `quality` job's identical comment on why this appends to $GITHUB_PATH.
+        run: |
+          uv python install ${{ env.PYTHON_VERSION }}
+          echo "$(dirname "$(uv python find ${{ env.PYTHON_VERSION }})")" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         # `--system` alone targets whatever `python3` resolves to on the runner image
@@ -92,7 +102,10 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install ${{ env.PYTHON_VERSION }}
+        # See the `quality` job's identical comment on why this appends to $GITHUB_PATH.
+        run: |
+          uv python install ${{ env.PYTHON_VERSION }}
+          echo "$(dirname "$(uv python find ${{ env.PYTHON_VERSION }})")" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         # See the `quality` job's identical comment: `--python` is required alongside
