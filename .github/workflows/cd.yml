@@ -85,12 +85,22 @@ jobs:
       - name: Trivy image scan
         # Was `@0.28.0` — no such tag exists (they're all `v`-prefixed); see ci.yml's
         # identical comment on its own filesystem-scan step for how this was confirmed.
+        #
+        # `cache: false` — found live: two runs in a row reported `msgpack` at 1.1.2 and
+        # `setuptools` at 70.3.0 as "Installed Version" in the vulnerability table, while
+        # that exact same scan's own "Report Summary" (a few lines above it, in the same
+        # output) correctly listed `msgpack-1.2.1.dist-info`/`setuptools-84.0.0.dist-info`
+        # with zero findings — a real contradiction within one scan, and the build log
+        # confirms those newer versions really were what got installed. Disabling the
+        # cache is the direct, testable fix for a caching-layer bug, not a guess at the
+        # underlying mechanism.
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image-ref.outputs.image }}
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: "1"
+          cache: false
           ignore-unfixed: true
 
       - name: Generate SBOM
