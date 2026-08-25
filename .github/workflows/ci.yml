@@ -29,13 +29,14 @@ jobs:
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
+        # Two real bugs, both found on the first CI run anyone actually watched: (1)
         # `--system` alone targets whatever `python3` resolves to on the runner image
-        # (Ubuntu 24.04 ships an externally-managed 3.12, which then refuses the install
-        # outright per PEP 668) — it does NOT pick up the 3.11 `uv python install` just
-        # downloaded into uv's own toolchain above. `--python` is what actually selects
-        # that interpreter; found live (first real CI run this pipeline ever completed,
-        # after months of every push silently failing at this exact step unnoticed).
-        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev]"
+        # (Ubuntu 24.04's externally-managed 3.12), never the 3.11 `uv python install`
+        # just downloaded — `--python` is what actually selects it; (2) uv's own managed
+        # interpreters are themselves externally-managed by default too, so `--system`
+        # still refuses the install even pointed at the right Python — a non-issue on a
+        # disposable single-purpose runner, hence `--break-system-packages`.
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} --break-system-packages -e ".[dev]"
 
       - name: Ruff
         run: ruff check --output-format=github src tests
@@ -70,7 +71,7 @@ jobs:
         # downloaded into uv's own toolchain above. `--python` is what actually selects
         # that interpreter; found live (first real CI run this pipeline ever completed,
         # after months of every push silently failing at this exact step unnoticed).
-        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev]"
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} --break-system-packages -e ".[dev]"
 
       - name: Run unit tests
         run: pytest -m unit
@@ -96,7 +97,7 @@ jobs:
       - name: Install dependencies
         # See the `quality` job's identical comment: `--python` is required alongside
         # `--system`, or uv silently falls back to the runner's externally-managed 3.12.
-        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} -e ".[dev,storage,test-infra]"
+        run: uv pip install --system --python ${{ env.PYTHON_VERSION }} --break-system-packages -e ".[dev,storage,test-infra]"
 
       - name: Run unit + integration tests with coverage
         run: pytest -m "unit or integration" --cov=factoryai --cov-report=term-missing --cov-report=xml
