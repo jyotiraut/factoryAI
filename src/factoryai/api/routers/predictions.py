@@ -7,17 +7,38 @@ from fastapi import APIRouter, Depends, Query
 from factoryai.api.dependencies import get_container, require_permission
 from factoryai.api.schemas import Page, PredictionHistoryResponse
 from factoryai.application.use_cases.list_feedback_queue import ListFeedbackQueueCommand
-from factoryai.application.use_cases.list_predictions import ListPredictionsCommand
+from factoryai.application.use_cases.list_predictions import (
+    ListPredictionsCommand,
+    PredictionWithImage,
+)
 from factoryai.bootstrap.container import Container
-from factoryai.domain.entities import Prediction
 from factoryai.domain.policies.permissions import Permission
 from factoryai.domain.value_objects import ModelVersionId, parse_uuid
 
 router = APIRouter(tags=["predictions"])
 
 
-def _to_response(prediction: Prediction) -> PredictionHistoryResponse:
-    """Map a domain prediction onto its dashboard representation."""
+async def _to_response(
+    container: Container, item: PredictionWithImage
+) -> PredictionHistoryResponse:
+    """Map an enriched prediction onto its dashboard representation.
+
+    Presigns both URLs here, at the API boundary, rather than in the use case — matching
+    ``POST /predict``'s own ``_to_response`` (`api/routers/predict.py`), the only other
+    place a stored object becomes a URL a browser can load. ``heatmap_url`` is ``None``
+    whenever ``heatmap_location`` was never set (a model family without localisation, or
+    the retention window already elapsed) — a missing heatmap on an old prediction is
+    normal, not an error.
+    """
+    prediction = item.prediction
+    heatmap_url = None
+    if prediction.heatmap_location is not None:
+        heatmap_url = await container.object_store.presign(
+            prediction.heatmap_location, ttl_seconds=container.settings.api.heatmap_url_ttl_seconds
+        )
+    image_url = await container.object_store.presign(
+        item.image_location, ttl_seconds=container.settings.api.heatmap_url_ttl_seconds
+    )
     return PredictionHistoryResponse(
         prediction_id=str(prediction.id),
         image_id=str(prediction.image_id),
@@ -30,6 +51,8 @@ def _to_response(prediction: Prediction) -> PredictionHistoryResponse:
         inference_time_ms=prediction.inference_time_ms,
         predicted_at=prediction.predicted_at.isoformat(),
         correlation_id=prediction.correlation_id,
+        image_url=image_url,
+        heatmap_url=heatmap_url,
     )
 
 
@@ -56,7 +79,7 @@ async def list_predictions(
         )
     )
     return Page(
-        items=[_to_response(p) for p in page.items],
+        items=[await _to_response(container, p) for p in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,
@@ -77,7 +100,7 @@ async def list_feedback_queue(
     use_case = container.list_feedback_queue_use_case()
     page = await use_case.execute(ListFeedbackQueueCommand(limit=limit, offset=offset))
     return Page(
-        items=[_to_response(p) for p in page.items],
+        items=[await _to_response(container, p) for p in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,

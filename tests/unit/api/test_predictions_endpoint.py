@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.builders import NOW, a_prediction, some_feedback
+from tests.builders import NOW, a_prediction, an_image, some_feedback
 from tests.unit.api.conftest import FakeContainer, bearer_header, build_test_app
 
 from factoryai.domain.value_objects import UserRole
@@ -12,14 +12,20 @@ from factoryai.domain.value_objects import UserRole
 pytestmark = pytest.mark.unit
 
 
+async def _add_prediction_with_image(container: FakeContainer, **overrides: object) -> object:
+    """Seed a prediction and the image it references — the endpoint now resolves both."""
+    prediction = a_prediction(**overrides)  # type: ignore[arg-type]
+    await container.uow.images.add(an_image(id=prediction.image_id))
+    await container.uow.predictions.add(prediction)
+    return prediction
+
+
 class TestListPredictions:
     async def test_a_viewer_gets_the_prediction_history(
         self, fake_container: FakeContainer
     ) -> None:
-        older = a_prediction(predicted_at=NOW)
-        newer = a_prediction(predicted_at=NOW.replace(hour=13))
-        await fake_container.uow.predictions.add(older)
-        await fake_container.uow.predictions.add(newer)
+        older = await _add_prediction_with_image(fake_container, predicted_at=NOW)
+        newer = await _add_prediction_with_image(fake_container, predicted_at=NOW.replace(hour=13))
         headers = await bearer_header(fake_container, UserRole.VIEWER)
 
         with TestClient(build_test_app(fake_container)) as client:
@@ -32,6 +38,7 @@ class TestListPredictions:
             str(newer.id),
             str(older.id),
         ]
+        assert all(item["image_url"] for item in body["items"])
 
     async def test_no_predictions_returns_an_empty_page(
         self, fake_container: FakeContainer
@@ -57,10 +64,8 @@ class TestListFeedbackQueue:
     async def test_a_viewer_gets_predictions_awaiting_review(
         self, fake_container: FakeContainer
     ) -> None:
-        reviewed = a_prediction()
-        pending = a_prediction()
-        await fake_container.uow.predictions.add(reviewed)
-        await fake_container.uow.predictions.add(pending)
+        reviewed = await _add_prediction_with_image(fake_container)
+        pending = await _add_prediction_with_image(fake_container)
         await fake_container.uow.predictions.add_feedback(some_feedback(prediction_id=reviewed.id))
         headers = await bearer_header(fake_container, UserRole.VIEWER)
 

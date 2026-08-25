@@ -241,6 +241,8 @@ class PredictionHistoryResponse(BaseModel):
     inference_time_ms: float
     predicted_at: str
     correlation_id: str | None = None
+    image_url: str | None = None
+    heatmap_url: str | None = None
 
 
 class DriftSignalResponse(BaseModel):

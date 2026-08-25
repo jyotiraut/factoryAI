@@ -49,6 +49,8 @@ export interface PredictionHistoryItem {
   inference_time_ms: number;
   predicted_at: string;
   correlation_id?: string | null;
+  image_url?: string | null;
+  heatmap_url?: string | null;
 }
 
 export interface FeedbackRequest {

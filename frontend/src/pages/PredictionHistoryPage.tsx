@@ -4,6 +4,7 @@ import * as api from "../api/endpoints";
 import { QueryState } from "../components/QueryState";
 import { Pager } from "../components/Pager";
 import { Badge } from "../components/Badge";
+import { PredictionImage } from "../components/PredictionImage";
 
 const LIMIT = 25;
 
@@ -35,7 +36,12 @@ export function PredictionHistoryPage() {
               {data?.items.map((prediction) => (
                 <tr key={prediction.prediction_id}>
                   <td>{new Date(prediction.predicted_at).toLocaleString()}</td>
-                  <td className="muted">{prediction.image_id.slice(0, 8)}</td>
+                  <td>
+                    <PredictionImage
+                      imageUrl={prediction.image_url}
+                      heatmapUrl={prediction.heatmap_url}
+                    />
+                  </td>
                   <td>
                     <Badge
                       label={prediction.is_anomalous ? "defect" : "good"}

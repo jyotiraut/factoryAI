@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from factoryai.application.pagination import Page
-from factoryai.domain.entities import Prediction
+from factoryai.application.use_cases.list_predictions import PredictionWithImage
 from factoryai.domain.ports.repositories import UnitOfWork
 
 
@@ -33,10 +33,16 @@ class ListFeedbackQueue:
         """Initialise with the only collaborator this use case needs."""
         self._uow_factory = uow_factory
 
-    async def execute(self, command: ListFeedbackQueueCommand) -> Page[Prediction]:
-        """Return the requested page of the feedback queue."""
+    async def execute(self, command: ListFeedbackQueueCommand) -> Page[PredictionWithImage]:
+        """Return the requested page of the feedback queue, newest first."""
         async with self._uow_factory() as uow:
             items, total = await uow.predictions.list_needing_feedback(
                 limit=command.limit, offset=command.offset
             )
-        return Page(items=items, total=total, limit=command.limit, offset=command.offset)
+            enriched = [
+                PredictionWithImage(
+                    prediction=item, image_location=(await uow.images.get(item.image_id)).location
+                )
+                for item in items
+            ]
+        return Page(items=enriched, total=total, limit=command.limit, offset=command.offset)

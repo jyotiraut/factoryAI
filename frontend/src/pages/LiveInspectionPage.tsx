@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../api/endpoints";
 import { QueryState } from "../components/QueryState";
 import { RoleGate } from "../components/RoleGate";
 import { Badge } from "../components/Badge";
+import { PredictionImage } from "../components/PredictionImage";
 import type { PredictionResponse } from "../api/types";
 
 /**
@@ -49,8 +50,8 @@ export function LiveInspectionPage() {
       <QueryState isLoading={isLoading} error={error} isEmpty={!prediction} emptyLabel="Queue is empty — nothing awaiting review.">
         {prediction && (
           <div className="card stack">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <span className="muted">Image {prediction.image_id}</span>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <PredictionImage imageUrl={prediction.image_url} heatmapUrl={prediction.heatmap_url} />
               <Badge label={prediction.is_anomalous ? "flagged defective" : "flagged good"} tone={prediction.is_anomalous ? "bad" : "good"} />
             </div>
             <div className="grid cols-3">
@@ -112,9 +113,20 @@ function UploadCard({
 }) {
   const [category, setCategory] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [result, setResult] = useState<PredictionResponse | null>(null);
 
   const activeCategory = category || categories[0] || "";
+
+  // The file the browser already holds is the fastest, most reliable preview source —
+  // no need to round-trip through the server for an image the client already has bytes
+  // for. Revoked on every change/unmount so selecting several files in a row does not
+  // leak blob URLs.
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const mutation = useMutation({
     mutationFn: () => api.predictImage(activeCategory, file as File),
@@ -140,7 +152,12 @@ function UploadCard({
           type="file"
           accept="image/png,image/jpeg,image/bmp,image/tiff"
           onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
+            const next = e.target.files?.[0] ?? null;
+            setFile(next);
+            setPreviewUrl((current) => {
+              if (current) URL.revokeObjectURL(current);
+              return next ? URL.createObjectURL(next) : null;
+            });
             setResult(null);
           }}
         />
@@ -154,11 +171,14 @@ function UploadCard({
       </div>
       {mutation.isError && <p className="error-text">Could not score that image.</p>}
       {result && (
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <Badge label={result.is_anomalous ? "flagged defective" : "flagged good"} tone={result.is_anomalous ? "bad" : "good"} />
-          <span className="muted">
-            score {result.anomaly_score.toFixed(3)} / threshold {result.threshold.toFixed(3)}
-          </span>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <PredictionImage imageUrl={previewUrl} heatmapUrl={result.heatmap_url} />
+          <div className="stack" style={{ alignItems: "flex-end" }}>
+            <Badge label={result.is_anomalous ? "flagged defective" : "flagged good"} tone={result.is_anomalous ? "bad" : "good"} />
+            <span className="muted">
+              score {result.anomaly_score.toFixed(3)} / threshold {result.threshold.toFixed(3)}
+            </span>
+          </div>
         </div>
       )}
     </div>
